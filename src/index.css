@@ -1,13 +1,239 @@
+/* Import Google Font */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* --- Root Variables --- */
+:root {
+  --bg-color: #f7f8fa;
+  --text-color: #111;
+  --text-color-secondary: #555;
+  --card-bg: #ffffff;
+  --sidebar-bg: #ffffff;
+  --header-bg: #0052cc;
+  --accent-color: #0052cc;
+  --border-color: #e6e6e6;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow-hover: 0 8px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* --- Dark Theme --- */
+[data-theme='dark'] {
+  --bg-color: #121212;
+  --text-color: #eaeaea;
+  --text-color-secondary: #999;
+  --card-bg: #1e1e1e;
+  --sidebar-bg: #1e1e1e;
+  --header-bg: #2a2a2a;
+  --accent-color: #ff9800;
+  --border-color: #333;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --shadow-hover: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* --- Base Styles --- */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Inter', sans-serif;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  transition: background-color 0.3s ease, color 0.3s ease;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* --- Sidebar --- */
+.sidebar {
+  width: 220px;
+  background-color: var(--sidebar-bg);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
 }
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  margin-bottom: 10px; /* Adjusted */
+}
+
+.sidebar a {
+  color: var(--text-color-secondary);
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  padding: 10px 15px;
+  border-radius: 8px;
+  display: block;
+}
+
+.sidebar a:hover {
+  color: var(--accent-color);
+  background-color: var(--bg-color);
+}
+
+.sidebar a.active {
+  background-color: var(--accent-color);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* --- Header --- */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 25px;
+  border-radius: 10px;
+  background-color: var(--header-bg);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+}
+
+.header-left h1 {
+  font-size: 1.8rem;
+  color: #fff;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+.user-profile {
+  display: flex;
+  align-items: center;
+  margin-right: 20px;
+}
+
+.user-profile .avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  margin-right: 10px;
+}
+
+.user-profile .username {
+  font-weight: 500;
+  color: #fff;
+}
+
+.theme-toggle {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--accent-color); /* Will be orange in dark mode */
+}
+
+/* --- Main content area --- */
+.main-content {
+  overflow-y: auto;
+  /* Add padding to the content area itself */
+  padding: 30px; 
+}
+
+/* --- Parameter Cards --- */
+.parameter-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.parameter-card {
+  background-color: var(--card-bg);
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border-color);
+  text-align: left;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.parameter-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-hover);
+}
+
+.parameter-card h3 {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-color-secondary);
+  margin: 0 0 8px 0;
+}
+
+.parameter-card p {
+  font-size: 2.0rem;
+  font-weight: 600;
+  color: var(--text-color);
+  margin: 0;
+}
+
+.parameter-card .unit {
+  font-size: 0.9rem;
+  color: var(--text-color-secondary);
+  margin-top: 4px;
+}
+
+/* --- Responsive & Hamburger --- */
+.hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: #fff;
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    position: absolute;
+    z-index: 50;
+    height: 100%;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    /* On mobile, remove border/shadow that separates from content */
+    border-right: none; 
+    box-shadow: 0 0 40px rgba(0,0,0,0.2); 
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hamburger {
+    display: inline-flex;
+  }
+  
+  .main-content {
+    padding: 15px; /* Reduce padding on mobile */
+  }
+
+  .parameter-cards-grid {
+    gap: 15px;
+  }
+}
+
+/* Dark theme card borders (already handled by var(--border-color)) */
+/* The original rule is no longer needed */

@@ -1,25 +1,23 @@
-import logo from './logo.svg';
-import './App.css';
+// src/App.js
+import { Routes, Route, Navigate } from "react-router-dom";
+import Layout from "./components/Layout";
+import RealTimeData from "./pages/RealTimeData";
+import HistoricalData from "./pages/HistoricalData";
+import Analytics from "./pages/Analytics";
+import Settings from "./pages/Settings";
+import FullDashboard from "./pages/FullDashboard";
 
-function App() {
+export default function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Layout>
+      <Routes>
+        <Route path="/" element={<Navigate to="/real-time" replace />} />
+        <Route path="/real-time" element={<RealTimeData />} />
+        <Route path="/historical" element={<HistoricalData />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/Dashboard" element={<FullDashboard />} />
+      </Routes>
+    </Layout>
   );
 }
-
-export default App;
