@@ -32,6 +32,13 @@
     }
   ],
   "env": {
-    "REACT_APP_API_URL": "https://backend-air-quality.onrender.com"
+    "REACT_APP_API_URL": "https://backend-air-quality.onrender.com",
+    "DISABLE_ESLINT_PLUGIN": "true"
+  },
+  "build": {
+    "env": {
+      "REACT_APP_API_URL": "https://backend-air-quality.onrender.com",
+      "DISABLE_ESLINT_PLUGIN": "true"
+    }
   }
 }
