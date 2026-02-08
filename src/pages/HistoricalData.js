@@ -13,7 +13,6 @@ import {
   AreaChart,
   Area,
   ComposedChart,
-  Bar,
   Legend,
   ReferenceLine
 } from 'recharts';

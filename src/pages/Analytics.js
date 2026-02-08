@@ -1,10 +1,10 @@
 // src/pages/Analytics.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../config/api';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
+  Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
   BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, RadarChart, Radar, PolarGrid,
-  PolarAngleAxis, PolarRadiusAxis, ScatterChart, Scatter, ComposedChart
+  PolarAngleAxis, PolarRadiusAxis, ComposedChart
 } from 'recharts';
 
 const metrics = [
@@ -19,7 +19,6 @@ export default function Analytics(){
   const [timeframe, setTimeframe] = useState('24h');
   const [rows, setRows] = useState([]);
   const [avg, setAvg] = useState({});
-  const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState(null);
   const [forecast, setForecast] = useState([]);
   const [anomalies, setAnomalies] = useState([]);
@@ -89,10 +88,10 @@ export default function Analytics(){
         setAnomalies(Array.isArray(anRes?.data) ? anRes.data : []);
       }catch(e){
         console.error(e);
-      }finally{ setLoading(false); }
+      }
     };
     load();
-  },[timeframe]);
+  },[timeframe, calculateCorrelations]);
   
   // Calculate overall air quality health score
   const calculateHealthScore = (avgs) => {
@@ -108,22 +107,6 @@ export default function Analytics(){
     return Math.max(0, Math.round(score));
   };
   
-  // Calculate correlation between metrics
-  const calculateCorrelations = (data) => {
-    const correlations = {};
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        const m1 = metrics[i];
-        const m2 = metrics[j];
-        const vals1 = data.map(d => Number(d[m1.key] || 0));
-        const vals2 = data.map(d => Number(d[m2.key] || 0));
-        const corr = pearsonCorrelation(vals1, vals2);
-        correlations[`${m1.key}-${m2.key}`] = corr;
-      }
-    }
-    return correlations;
-  };
-  
   // Pearson correlation coefficient
   const pearsonCorrelation = (x, y) => {
     const n = Math.min(x.length, y.length);
@@ -137,6 +120,22 @@ export default function Analytics(){
     const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
     return denominator === 0 ? 0 : (numerator / denominator).toFixed(3);
   };
+  
+  // Calculate correlation between metrics
+  const calculateCorrelations = useCallback((data) => {
+    const correlations = {};
+    for (let i = 0; i < metrics.length; i++) {
+      for (let j = i + 1; j < metrics.length; j++) {
+        const m1 = metrics[i];
+        const m2 = metrics[j];
+        const vals1 = data.map(d => Number(d[m1.key] || 0));
+        const vals2 = data.map(d => Number(d[m2.key] || 0));
+        const corr = pearsonCorrelation(vals1, vals2);
+        correlations[`${m1.key}-${m2.key}`] = corr;
+      }
+    }
+    return correlations;
+  }, []);
   
   // Simple moving average prediction
   const generatePredictions = (data) => {
