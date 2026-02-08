@@ -1,0 +1,7 @@
+pymongo
+python-dotenv
+scikit-learn
+pandas
+numpy
+requests
+twilio

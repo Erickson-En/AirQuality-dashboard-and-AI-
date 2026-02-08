@@ -1,84 +1,79 @@
+// src/pages/RealTimeData.js
 import React, { useEffect, useState } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
-import { socket } from '../config/api';
+import MetricCard from '../components/MetricCard';
+import { api, socket } from '../config/api';
+import { ResponsiveContainer, LineChart, Line, CartesianGrid, Tooltip, XAxis, YAxis, Legend, Brush } from 'recharts';
 
-const metricsList = [
-  { label: 'PM2.5', key: 'pm25', unit: 'µg/m³', stroke: '#8884d8' },
-  { label: 'PM10', key: 'pm10', unit: 'µg/m³', stroke: '#82ca9d' },
-  { label: 'CO', key: 'co', unit: 'ppm', stroke: '#ff7300' },
-  { label: 'O3', key: 'o3', unit: 'ppb', stroke: '#ff0000' },
-  { label: 'NO2', key: 'no2', unit: 'ppb', stroke: '#9c27b0' },
-  { label: 'Temperature', key: 'temperature', unit: '°C', stroke: '#ffb300' },
-  { label: 'Humidity', key: 'humidity', unit: '%', stroke: '#00bcd4' },
-  { label: 'Pressure', key: 'pressure', unit: 'hPa', stroke: '#795548' },
-  { label: 'Light Intensity', key: 'light', unit: 'lux', stroke: '#4caf50' },
-];
+const flattenReading = (payload) => (payload?.metrics
+  ? { ...payload.metrics, timestamp: payload.timestamp, location: payload.location }
+  : payload || {});
 
-const RealTimeData = () => {
-  const [current, setCurrent] = useState({});
+export default function RealTimeData(){
+  const [metrics, setMetrics] = useState({});
   const [series, setSeries] = useState([]);
-  const [alerts, setAlerts] = useState([]);
 
-  useEffect(() => {
-    const onSensor = (data) => {
-      setCurrent(data.metrics ? { ...data.metrics, timestamp: data.timestamp, location: data.location } : data);
-      setSeries(prev => [...prev.slice(-49), (data.metrics ? { timestamp: data.timestamp, ...data.metrics } : data)]);
+  useEffect(()=>{
+    let active = true;
+
+    const seedLatest = async () => {
+      try {
+        const resp = await api.get('/api/sensor-data/latest');
+        if (!active || !resp?.data) return;
+        const flat = flattenReading(resp.data);
+        const ts = flat?.timestamp ? new Date(flat.timestamp).getTime() : Date.now();
+        setMetrics(prev=>({ ...prev, ...flat }));
+        setSeries(prev => [...prev.slice(-299), { ...flat, ts }]);
+      } catch (err) {
+        console.error('Failed to load latest sensor reading:', err);
+      }
     };
-    const onAlert = (alert) => setAlerts(prev => [alert, ...prev].slice(0, 5));
 
-    socket.on('sensorData', onSensor);
-    socket.on('alert', onAlert);
-    return () => {
-      socket.off('sensorData', onSensor);
-      socket.off('alert', onAlert);
+    seedLatest();
+    if (!socket.connected) socket.connect();
+
+    const handleSensor = (payload) => {
+      const flat = flattenReading(payload);
+      const ts = flat?.timestamp ? new Date(flat.timestamp).getTime() : Date.now();
+      setMetrics(prev=>({...prev, ...flat}));
+      setSeries(prev => [...prev.slice(-299), {...flat, ts}]);
     };
-  }, []);
 
-  const aqiColor = (v = 0) =>
-    v <= 50 ? '#4caf50' : v <= 100 ? '#ffeb3b' : v <= 150 ? '#ff9800' :
-    v <= 200 ? '#f44336' : v <= 300 ? '#9c27b0' : '#7e0023';
+    socket.on('sensorData', handleSensor);
+    return ()=> {
+      active = false;
+      socket.off('sensorData', handleSensor);
+    };
+  },[]);
 
   return (
-    <div className="real-time-data">
-      <h2>Real-Time Air Quality</h2>
-
-      {alerts.map((a, i) => (
-        <div key={i} className="alert-banner">Alert: {a.metric.toUpperCase()} = {a.value} (>{a.threshold})</div>
-      ))}
-
-      <div className="aqi-card" style={{ backgroundColor: aqiColor(current.pm25) }}>
-        <h3>Current AQ (PM2.5)</h3>
-        <p>{current.pm25 ?? '—'}</p>
+    <div>
+      <div style={{marginBottom:12, display:'flex', gap:12}}>
+        <div className="kv">Live Real-Time Metrics</div>
       </div>
 
-      <div className="pollutant-cards">
-        {metricsList.map(m => (
-          <div key={m.key} className="pollutant-card">
-            <h4>{m.label}</h4>
-            <p>{current[m.key] ?? '—'} {m.unit}</p>
-          </div>
-        ))}
+      <div className="cards-grid">
+        <MetricCard title="PM2.5" value={metrics.pm25} unit="µg/m³" />
+        <MetricCard title="PM10" value={metrics.pm10} unit="µg/m³" />
+        <MetricCard title="CO" value={metrics.co} unit="ppm" />
+        <MetricCard title="O3" value={metrics.o3} unit="ppb" />
       </div>
 
-      <div className="charts-container">
-        <h3>Real-Time Trends</h3>
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={series}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="timestamp" />
-            <YAxis />
-            <Tooltip />
+      <div className="charts-row">
+        <h3 style={{marginTop:18}}>Real-time trend (last 50 samples)</h3>
+        <ResponsiveContainer width="100%" height={300}>
+          <LineChart data={series} syncId="realtime">
+            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+            <XAxis dataKey="ts" type="number" scale="time" domain={["auto","auto"]} tickFormatter={v=>new Date(v).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} />
+            <YAxis width={52} tickLine={false} />
+            <Tooltip labelFormatter={v=>new Date(v).toLocaleString()} />
             <Legend />
-            {metricsList.map(m => (
-              <Line key={m.key} type="monotone" dataKey={m.key} name={m.label} stroke={m.stroke} dot={false} />
-            ))}
+            <Line type="monotone" dataKey="pm25" stroke="#8884d8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+            <Line type="monotone" dataKey="pm10" stroke="#82ca9d" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+            <Line type="monotone" dataKey="co" stroke="#ff7300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+            <Brush height={14} travellerWidth={8} />
           </LineChart>
         </ResponsiveContainer>
       </div>
     </div>
   );
-};
-
-export default RealTimeData;
+}

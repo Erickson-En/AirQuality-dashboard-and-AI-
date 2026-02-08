@@ -1,6 +1,6 @@
 // backend/routes/alerts.js
 const express = require('express');
-const Alert = require('../models/alert');
+const Alert = require('./models/alert');
 const router = express.Router();
 
 // Get all alerts

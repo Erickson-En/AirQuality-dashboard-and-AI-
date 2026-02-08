@@ -1,121 +1,190 @@
-import React, { useState, useEffect } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
-import { io } from 'socket.io-client';
+// src/pages/FullDashboard.js
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import MetricCard from "../components/MetricCard";
+import { api, socket } from "../config/api";
 
-const socket = io('http://localhost:5000'); // Backend URL
+// Threshold limits
+const LIMITS = {
+  pm25: 150,
+  pm10: 200,
+  co: 9,
+  o3: 120,
+  no2: 200,
+  temperature: 40,
+  humidity: 90,
+  pressure: 1100,
+  light: 50000
+};
 
-const metricsList = [
-  { label: 'PM2.5', key: 'pm25', unit: 'µg/m³', stroke: '#39349bff' },
-  { label: 'PM10', key: 'pm10', unit: 'µg/m³', stroke: '#82ca9d' },
-  { label: 'CO', key: 'co', unit: 'ppm', stroke: '#ff7300' },
-  { label: 'O3', key: 'o3', unit: 'ppb', stroke: '#ff0000' },
-  { label: 'NO2', key: 'no2', unit: 'ppb', stroke: '#9c27b0' },
-  { label: 'Temperature', key: 'temperature', unit: '°C', stroke: '#ffb300' },
-  { label: 'Humidity', key: 'humidity', unit: '%', stroke: '#00bcd4' },
-  { label: 'Pressure', key: 'pressure', unit: 'hPa', stroke: '#795548' },
-  { label: 'Light Intensity', key: 'light', unit: 'lux', stroke: '#4caf50' },
+// Card severity colors
+const SEVERITY_COLORS = {
+  GOOD: "linear-gradient(180deg,#00ff8a,#00b3ff)",
+  MODERATE: "linear-gradient(180deg,#fff176,#fbc02d)",
+  BAD: "linear-gradient(180deg,#ff9800,#f57c00)",
+  HAZARDOUS: "linear-gradient(180deg,#ff5252,#c62828)",
+};
+
+const list = [
+  { label: "PM2.5", key:"pm25", unit:"µg/m³" },
+  { label: "PM10", key:"pm10", unit:"µg/m³" },
+  { label: "CO", key:"co", unit:"ppm" },
+  { label: "O3", key:"o3", unit:"ppb" },
+  { label: "NO2", key:"no2", unit:"ppb" },
+  { label: "Temp", key:"temperature", unit:"°C" },
+  { label: "Humidity", key:"humidity", unit:"%" },
+  { label: "Pressure", key:"pressure", unit:"hPa" },
+  { label: "Light", key:"light", unit:"lux" }
 ];
 
-const FullDashboard = () => {
-  const [currentData, setCurrentData] = useState({});
-  const [chartData, setChartData] = useState([]);
-  const [alerts, setAlerts] = useState([]);
+// Flatten incoming data
+const flattenReading = (payload) =>
+  payload?.metrics
+    ? { ...payload.metrics, timestamp: payload.timestamp, location: payload.location }
+    : payload || {};
+
+export default function FullDashboard() {
+  const [metrics, setMetrics] = useState({});
+  const [airStatus, setAirStatus] = useState("GOOD");
+  const [causes, setCauses] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 🔥 Determine severity based on value vs threshold (memoized)
+  const getSeverity = useCallback((key, value) => {
+    const limit = LIMITS[key];
+    if (value == null) return "GOOD";
+
+    if (value < limit * 0.5) return "GOOD";
+    if (value < limit) return "MODERATE";
+    if (value < limit * 2) return "BAD";
+    return "HAZARDOUS";
+  }, []);
+
+  // 🔥 Evaluate overall air quality & track causes (memoized)
+  const evaluateAirQuality = useCallback((data) => {
+    let worstLevel = "GOOD";
+    let pollutantCauses = [];
+
+    for (const key in LIMITS) {
+      const value = data[key];
+      if (value === undefined) continue;
+
+      const level = getSeverity(key, value);
+
+      // Track pollutants that are BAD or worse
+      if (level === "BAD" || level === "HAZARDOUS") {
+        pollutantCauses.push({ key, value, level });
+      }
+
+      // Determine worst level among all pollutants
+      const rank = ["GOOD", "MODERATE", "BAD", "HAZARDOUS"];
+      if (rank.indexOf(level) > rank.indexOf(worstLevel)) {
+        worstLevel = level;
+      }
+    }
+
+    setAirStatus(worstLevel);
+    setCauses(pollutantCauses);
+  }, [getSeverity]);
 
   useEffect(() => {
-    const onSensorData = (payload) => {
-      // Flatten backend payload: {timestamp, location, metrics:{...}} -> {timestamp, location, pm25, ...}
-      const flat = payload?.metrics
-        ? { timestamp: payload.timestamp, location: payload.location, ...payload.metrics }
-        : payload;
+    let isMounted = true;
 
-      setCurrentData(flat);
-      setChartData((prev) => [...prev.slice(-49), flat]);
+    const hydrateFromLatest = async () => {
+      try {
+        const resp = await api.get("/api/sensor-data/latest");
+        if (!isMounted || !resp?.data) return;
 
-      // Simple local alert rule (in addition to backend 'alert' events)
-      const local = [];
-      if ((flat.pm25 ?? 0) > 150 || (flat.pm10 ?? 0) > 150) {
-        local.push('Air quality is unhealthy! Limit outdoor activity.');
+        const flat = flattenReading(resp.data);
+        setMetrics(prev => ({ ...prev, ...flat }));
+        evaluateAirQuality(flat);
+        setIsLoading(false);
+
+        const last = document.getElementById("last-update");
+        if (last && flat.timestamp) {
+          last.innerText = new Date(flat.timestamp).toLocaleTimeString();
+        }
+      } catch (err) {
+        console.error("Failed to hydrate latest:", err);
+        setIsLoading(false);
       }
-      if (local.length) setAlerts((prev) => [...local, ...prev].slice(0, 5));
     };
 
-    const onAlert = (alert) => {
-      // alert = { metric, value, threshold, severity, ... }
-      const msg = `Alert: ${alert.metric.toUpperCase()} = ${alert.value} (>${alert.threshold})`;
-      setAlerts((prev) => [msg, ...prev].slice(0, 5));
+    hydrateFromLatest();
+    if (!socket.connected) socket.connect();
+
+    const handleSensor = (payload) => {
+      const flat = flattenReading(payload);
+
+      setMetrics(prev => ({ ...prev, ...flat }));
+      evaluateAirQuality(flat);
+
+      const last = document.getElementById("last-update");
+      if (last) {
+        last.innerText = new Date(flat.timestamp || Date.now()).toLocaleTimeString();
+      }
     };
 
-    socket.on('sensorData', onSensorData);
-    socket.on('alert', onAlert);
+    socket.on("sensorData", handleSensor);
 
     return () => {
-      socket.off('sensorData', onSensorData);
-      socket.off('alert', onAlert);
+      isMounted = false;
+      socket.off("sensorData", handleSensor);
     };
   }, []);
 
-  const getAqiColor = (value = 0) => {
-    if (value <= 50) return '#4caf50';
-    if (value <= 100) return '#ffeb3b';
-    if (value <= 150) return '#ff9800';
-    if (value <= 200) return '#f44336';
-    if (value <= 300) return '#9c27b0';
-    return '#7e0023';
-  };
-
   return (
-    <div className="full-dashboard">
-      <h2>Full Air Quality Dashboard (Real-Time)</h2>
+    <div>
 
-      {/* Alerts */}
-      {alerts.map((alert, idx) => (
-        <div key={idx} className="alert-banner">{alert}</div>
-      ))}
+      {/* 🔥 MAIN AIR QUALITY ALERT */}
+      <div
+        style={{
+          padding: "15px",
+          marginBottom: "20px",
+          borderRadius: "12px",
+          textAlign: "center",
+          fontWeight: "bold",
+          fontSize: "1.3rem",
+          background:
+            airStatus === "GOOD" ? "#4caf50" :
+            airStatus === "MODERATE" ? "#ffeb3b" :
+            airStatus === "BAD" ? "#ff9800" :
+            "#d32f2f",
+          color: airStatus === "MODERATE" ? "#000" : "#fff",
+        }}
+      >
+        Air Quality: {airStatus}
+        <br />
 
-      {/* AQI Card (demo uses PM2.5 as AQ indicator) */}
-      <div className="aqi-card" style={{ backgroundColor: getAqiColor(currentData.pm25) }}>
-        <h3>Current AQ (PM2.5)</h3>
-        <p>{currentData.pm25 ?? 'Loading...'}</p>
-        <small>{currentData.location ? `Location: ${currentData.location}` : ''}</small>
-      </div>
-
-      {/* Metric Cards */}
-      <div className="pollutant-cards">
-        {metricsList.map((m) => (
-          <div key={m.key} className="pollutant-card">
-            <h4>{m.label}</h4>
-            <p>{currentData[m.key] ?? 'N/A'} {m.unit}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Trend Charts */}
-      <div className="historical-charts">
-        <h3>Real-Time Trends</h3>
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="timestamp" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            {metricsList.map((m) => (
-              <Line
-                key={m.key}
-                type="monotone"
-                dataKey={m.key}
-                name={m.label}
-                stroke={m.stroke}
-                dot={false}
-              />
+        {/* 🔥 Show causes only when needed */}
+        {causes.length > 0 && (
+          <div style={{ fontSize: "1rem", marginTop: "5px" }}>
+            Pollutants above safe limits:
+            {causes.map((c, i) => (
+              <div key={i}>
+                <b>{c.key.toUpperCase()}</b> = {c.value} ({c.level})
+              </div>
             ))}
-          </LineChart>
-        </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* 🔥 METRIC CARDS WITH SEVERITY COLORS */}
+      <div className="cards-grid">
+        {list.map(item => {
+          const sev = getSeverity(item.key, metrics[item.key]);
+          const color = SEVERITY_COLORS[sev];
+
+          return (
+            <MetricCard
+              key={item.key}
+              title={item.label}
+              value={metrics[item.key]}
+              unit={item.unit}
+              color={color}
+            />
+          );
+        })}
       </div>
     </div>
   );
-};
-
-export default FullDashboard;
+}

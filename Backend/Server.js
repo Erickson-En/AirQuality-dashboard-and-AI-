@@ -20,6 +20,9 @@ const Reading = require('./models/reading');
 const Alert = require('./models/alert');
 const Setting = require('./models/settings');
 
+// Routes
+const chatbotRouter = require('./routes/chatbot');
+
 const app = express();
 app.use(express.json());
 
@@ -173,9 +176,7 @@ app.get("/api/airdata/latest", async (req, res) => {
   res.json(normalized);
 });
 
-// ------------------------------------------------------------
-//  GET LATEST SENSOR DATA
-// ------------------------------------------------------------
+
 app.get("/api/sensor-data/latest", async (req, res) => {
   if (latestReadingCache) return res.json(latestReadingCache);
 
@@ -186,9 +187,7 @@ app.get("/api/sensor-data/latest", async (req, res) => {
   res.json(normalized);
 });
 
-// ------------------------------------------------------------
-// HISTORICAL DATA
-// ------------------------------------------------------------
+
 app.get("/api/historical", async (req, res) => {
   try {
     let readings = await Reading.find().sort({ timestamp: 1 }).lean();
@@ -213,6 +212,9 @@ app.get("/api/settings/:userId", async (req, res) => {
   const doc = await Setting.findOne({ userId: req.params.userId });
   res.json(doc || {});
 });
+
+// ---------- CHATBOT ROUTES ----------
+app.use("/api/chatbot", chatbotRouter);
 
 // ---------- SOCKET.IO ----------
 io.on("connection", socket =>
