@@ -28,3 +28,12 @@ yarn-error.log*
 # IDE
 .vscode/
 .idea/
+
+# Python virtual environments
+ml/.venv/
+ml/anomaly/.venv/
+**/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
