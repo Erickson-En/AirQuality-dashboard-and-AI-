@@ -6,6 +6,7 @@
  *  ✓ Emits live updates via Socket.IO
  *  ✓ Emits alerts & persists them
  *  ✓ Used by your dashboard frontend
+ *  ✓ CORS configured for Vercel production
  */
 
 const express = require('express');
