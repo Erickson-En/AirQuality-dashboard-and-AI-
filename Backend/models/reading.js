@@ -14,6 +14,8 @@ const readingSchema = new mongoose.Schema({
     humidity: Number,
     pressure: Number,
     light: Number,
+    voc_index: Number,
+    nox_index: Number,
   },
 });
 

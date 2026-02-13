@@ -43,7 +43,12 @@ const envOrigins = envOriginsRaw
   .map(s => s.trim())
   .filter(Boolean);
 
-const allowedOrigins = [...defaultOrigins, ...envOrigins];
+// Production Vercel URL (hardcoded for immediate deployment)
+const productionOrigins = [
+  'https://air-quality-dashboard-and-ai.vercel.app'
+];
+
+const allowedOrigins = [...defaultOrigins, ...envOrigins, ...productionOrigins];
 
 app.use(cors({
   origin: (origin, cb) => {
