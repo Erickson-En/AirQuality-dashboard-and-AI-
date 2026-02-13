@@ -125,10 +125,6 @@ body {
   transform: translateY(-4px) scale(1.02);
   box-shadow: 0 12px 28px rgba(7,20,50,0.8);
 }
-  min-height: 240px;
-  position:relative;
-  overflow:visible;
-}
 .metric-title { font-size:14px; color: rgba(255,255,255,0.9); font-weight:700; margin-bottom: 12px; letter-spacing:0.8px; }
 .metric-gauge {
   width:72px;
@@ -389,7 +385,6 @@ body {
   .metric-card {
     min-height: 180px;
   }
-}
 }
 
 /* ---------- Analytics (Option C) specific classes ---------- */

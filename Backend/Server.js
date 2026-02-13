@@ -27,15 +27,27 @@ const app = express();
 app.use(express.json());
 
 // ---------- CORS (Frontend only) ----------
-const allowedOrigins = [
+// Default localhost origins for development
+const defaultOrigins = [
   'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173',
 ];
 
+// Allow configuring one or multiple production frontend origins via env
+// Example: FRONTEND_URLS="https://your-app.vercel.app,https://www.your-domain.com"
+const envOriginsRaw = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '';
+const envOrigins = envOriginsRaw
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const allowedOrigins = [...defaultOrigins, ...envOrigins];
+
 app.use(cors({
   origin: (origin, cb) => {
+    // Allow non-browser clients (no origin) and configured origins
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
     return cb(new Error('CORS blocked: ' + origin));
   },

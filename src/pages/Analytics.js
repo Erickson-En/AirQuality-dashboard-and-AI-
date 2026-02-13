@@ -26,12 +26,43 @@ export default function Analytics(){
   const [trends, setTrends] = useState({});
   const [healthScore, setHealthScore] = useState(0);
   const [predictions, setPredictions] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(()=>{
     // apply cyber theme for analytics page only
     document.documentElement.setAttribute('data-theme','cyber');
     return ()=> document.documentElement.removeAttribute('data-theme');
   },[]);
+
+  // Pearson correlation coefficient
+  const pearsonCorrelation = (x, y) => {
+    const n = Math.min(x.length, y.length);
+    if (n === 0) return 0;
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = y.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
+    const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
+    const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    return denominator === 0 ? 0 : (numerator / denominator).toFixed(3);
+  };
+  
+  // Calculate correlation between metrics
+  const calculateCorrelations = useCallback((data) => {
+    const correlations = {};
+    for (let i = 0; i < metrics.length; i++) {
+      for (let j = i + 1; j < metrics.length; j++) {
+        const m1 = metrics[i];
+        const m2 = metrics[j];
+        const vals1 = data.map(d => Number(d[m1.key] || 0));
+        const vals2 = data.map(d => Number(d[m2.key] || 0));
+        const corr = pearsonCorrelation(vals1, vals2);
+        correlations[`${m1.key}-${m2.key}`] = corr;
+      }
+    }
+    return correlations;
+  }, []);
 
   useEffect(()=>{
     const load = async ()=>{
@@ -106,36 +137,6 @@ export default function Analytics(){
     });
     return Math.max(0, Math.round(score));
   };
-  
-  // Pearson correlation coefficient
-  const pearsonCorrelation = (x, y) => {
-    const n = Math.min(x.length, y.length);
-    if (n === 0) return 0;
-    const sumX = x.reduce((a, b) => a + b, 0);
-    const sumY = y.reduce((a, b) => a + b, 0);
-    const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-    const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
-    const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
-    const numerator = n * sumXY - sumX * sumY;
-    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-    return denominator === 0 ? 0 : (numerator / denominator).toFixed(3);
-  };
-  
-  // Calculate correlation between metrics
-  const calculateCorrelations = useCallback((data) => {
-    const correlations = {};
-    for (let i = 0; i < metrics.length; i++) {
-      for (let j = i + 1; j < metrics.length; j++) {
-        const m1 = metrics[i];
-        const m2 = metrics[j];
-        const vals1 = data.map(d => Number(d[m1.key] || 0));
-        const vals2 = data.map(d => Number(d[m2.key] || 0));
-        const corr = pearsonCorrelation(vals1, vals2);
-        correlations[`${m1.key}-${m2.key}`] = corr;
-      }
-    }
-    return correlations;
-  }, []);
   
   // Simple moving average prediction
   const generatePredictions = (data) => {
