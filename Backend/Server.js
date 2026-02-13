@@ -37,12 +37,11 @@ const defaultOrigins = [
 ];
 
 // Allow configuring one or multiple production frontend origins via env
-// Example: FRONTEND_URLS="https://your-app.vercel.app,https://www.your-domain.com"
-const envOriginsRaw = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || '';
-const envOrigins = envOriginsRaw
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+// Supports: FRONTEND_URLS, FRONTEND_URL, or CORS_ORIGIN (from your Render config)
+const envOriginsRaw = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || process.env.CORS_ORIGIN || '';
+const envOrigins = envOriginsRaw === '*' 
+  ? [] // Ignore wildcard, use explicit list instead
+  : envOriginsRaw.split(',').map(s => s.trim()).filter(Boolean);
 
 // Production Vercel URL (hardcoded for immediate deployment)
 const productionOrigins = [
