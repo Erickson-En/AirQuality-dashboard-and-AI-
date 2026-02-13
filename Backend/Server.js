@@ -43,17 +43,29 @@ const envOrigins = envOriginsRaw === '*'
   ? [] // Ignore wildcard, use explicit list instead
   : envOriginsRaw.split(',').map(s => s.trim()).filter(Boolean);
 
-// Production Vercel URL (hardcoded for immediate deployment)
+// Production Vercel URL - use base URL to match all deployments (preview, production, etc.)
 const productionOrigins = [
-  'https://air-quality-dashboard-and-ai.vercel.app'
+  'https://air-quality-dashboard-and-ai.vercel.app',
+  'https://air-quality-dashboard-and-ai-git-main',  // Git branch previews
+  'https://air-quality-dashboard-and-ai'  // Base match for all Vercel deployments
 ];
 
 const allowedOrigins = [...defaultOrigins, ...envOrigins, ...productionOrigins];
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow non-browser clients (no origin) and configured origins
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+    if (!origin) return cb(null, true);
+
+    // Check if origin starts with any allowed origin (handles trailing slashes, ports, preview URLs)
+    const isAllowed = allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin));
+    
+    if (isAllowed) {
+      console.log('✓ CORS allowed:', origin);
+      return cb(null, true);
+    }
+
+    console.log('✗ CORS blocked:', origin);
     return cb(new Error('CORS blocked: ' + origin));
   },
   credentials: true
