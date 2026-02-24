@@ -33,9 +33,19 @@ const long GSM_BAUD = 9600;
 // ----------------------
 // GSM CONFIGURATION - UPDATE THESE!
 // ----------------------
-const char* APN = "safaricom";  // Your carrier APN (safaricom, airtel, internet, etc.)
-const char* BACKEND_URL = "air-quality-backend-xyz.onrender.com";  // UPDATE: Your Render backend URL (without https://)
+// Try these APNs for Kenya carriers:
+// Safaricom: "safaricom" or "internet" or "" (empty)
+// Airtel: "internet" or "airtelgprs.com"
+const char* APN = "safaricom";  
+
+// IMPORTANT: After deploying the proxy, replace "YOUR-PROXY-URL" with your actual proxy URL
+// Example: "air-quality-proxy-abc123.onrender.com"
+const char* BACKEND_URL = "YOUR-PROXY-URL.onrender.com";  // Your HTTP proxy URL
 const char* BACKEND_PATH = "/api/sensor-data";
+
+// CRITICAL: MUST use HTTP (not HTTPS) - SIM800L power supply can't handle SSL
+// The proxy will forward your HTTP request to the HTTPS backend
+const char* PROTOCOL = "http://";  // Changed to HTTP for proxy
 
 // Send interval
 const unsigned long SEND_INTERVAL = 60000;  // Send data every 60 seconds
@@ -132,6 +142,34 @@ bool waitForResponse(const char* expected, unsigned long timeout) {
   return false;
 }
 
+bool checkNetworkRegistration() {
+  Serial.println(F("Checking network registration..."));
+  
+  // Check network registration status
+  SIM800L_SERIAL.println("AT+CREG?");
+  delay(1000);
+  
+  String response = "";
+  unsigned long startTime = millis();
+  
+  while (millis() - startTime < 3000) {
+    while (SIM800L_SERIAL.available()) {
+      char c = SIM800L_SERIAL.read();
+      response += c;
+      Serial.write(c);
+    }
+  }
+  
+  // +CREG: 0,1 or +CREG: 0,5 means registered
+  if (response.indexOf("+CREG: 0,1") != -1 || response.indexOf("+CREG: 0,5") != -1) {
+    Serial.println(F("✓ Network registered"));
+    return true;
+  }
+  
+  Serial.println(F("✗ Not registered on network"));
+  return false;
+}
+
 void initGSM() {
   Serial.println(F("\n=== Initializing GSM ==="));
   
@@ -155,8 +193,47 @@ void initGSM() {
   sendATCommand("AT+CSQ", "OK", 2000);
   delay(500);
   
+  // Check network registration
+  if (!checkNetworkRegistration()) {
+    Serial.println(F("Warning: Network not registered. Continuing anyway..."));
+  }
+  
+  // Check GPRS attachment
+  Serial.println(F("Checking GPRS attachment..."));
+  SIM800L_SERIAL.println("AT+CGATT?");
+  delay(2000);
+  
+  String attachResponse = "";
+  unsigned long attachStart = millis();
+  while (millis() - attachStart < 2000) {
+    while (SIM800L_SERIAL.available()) {
+      char c = SIM800L_SERIAL.read();
+      attachResponse += c;
+      Serial.write(c);
+    }
+  }
+  
+  // If not attached (+CGATT: 0), try to attach
+  if (attachResponse.indexOf("+CGATT: 0") != -1) {
+    Serial.println(F("\n✗ Not attached to GPRS. Attempting to attach..."));
+    sendATCommand("AT+CGATT=1", "OK", 10000);
+    delay(5000);  // Wait for attachment
+    
+    // Verify attachment
+    sendATCommand("AT+CGATT?", "+CGATT: 1", 5000);
+  } else if (attachResponse.indexOf("+CGATT: 1") != -1) {
+    Serial.println(F("\n✓ GPRS attached"));
+  }
+  
   // Connect to GPRS
-  Serial.println(F("Connecting to GPRS..."));
+  Serial.println(F("Connecting to GPRS bearer..."));
+  
+  // First, close any existing bearer
+  Serial.println(F("Closing any existing bearer..."));
+  SIM800L_SERIAL.println("AT+SAPBR=0,1");
+  delay(3000);  // Wait for close
+  
+  // Configure bearer
   sendATCommand("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\"", "OK", 2000);
   delay(500);
   
@@ -164,11 +241,62 @@ void initGSM() {
   sendATCommand(apnCmd.c_str(), "OK", 2000);
   delay(500);
   
-  sendATCommand("AT+SAPBR=1,1", "OK", 10000);
+  // Try opening bearer with extended timeout (can take 30+ seconds)
+  Serial.println(F("Opening GPRS bearer (this may take 30-60 seconds)..."));
+  if (sendATCommand("AT+SAPBR=1,1", "OK", 65000)) {
+    Serial.println(F("✓ Bearer opened"));
+  } else {
+    Serial.println(F("✗ Bearer open failed"));
+    Serial.println(F("  Possible issues:"));
+    Serial.println(F("  - SIM card has no active data plan"));
+    Serial.println(F("  - Wrong APN (try 'internet' or leave blank)"));
+    Serial.println(F("  - Network congestion - wait and retry"));
+  }
+  delay(5000);  // Wait for connection to stabilize
+  
+  // Check bearer status and IP
+  Serial.println(F("Checking bearer status..."));
+  SIM800L_SERIAL.println("AT+SAPBR=2,1");
   delay(2000);
   
-  sendATCommand("AT+SAPBR=2,1", "OK", 2000);
-  delay(500);
+  String bearerResponse = "";
+  unsigned long startTime = millis();
+  while (millis() - startTime < 3000) {
+    while (SIM800L_SERIAL.available()) {
+      char c = SIM800L_SERIAL.read();
+      bearerResponse += c;
+      Serial.write(c);
+    }
+  }
+  
+  // Check if we got a valid IP (not 0.0.0.0)
+  if (bearerResponse.indexOf("0.0.0.0") != -1) {
+    Serial.println(F("\n✗ GPRS Connection Failed: No IP assigned"));
+    Serial.println(F("  CRITICAL: SIM card is NOT connected to data network"));
+    Serial.println(F("  Solutions to try:"));
+    Serial.println(F("  1. Verify SIM has active DATA plan (not just airtime)"));
+    Serial.println(F("  2. Try APN: 'internet' (change line 38)"));
+    Serial.println(F("  3. Try empty APN: const char* APN = \"\";"));
+    Serial.println(F("  4. Contact carrier to enable data on this SIM"));
+    Serial.println(F("  5. Test SIM in a phone - can you browse internet?"));
+    gsmReady = false;
+    return;
+  } else if (bearerResponse.indexOf("+SAPBR: 1,1") != -1) {
+    Serial.println(F("\n✓ GPRS Connected with valid IP!"));
+  } else {
+    Serial.println(F("\n⚠ Unknown bearer status"));
+    // Extract and show the actual response
+    int sapbrIndex = bearerResponse.indexOf("+SAPBR:");
+    if (sapbrIndex != -1) {
+      String statusLine = bearerResponse.substring(sapbrIndex, bearerResponse.indexOf("\n", sapbrIndex));
+      Serial.print(F("  Status: "));
+      Serial.println(statusLine);
+    }
+  }
+  
+  // Terminate any existing HTTP session
+  SIM800L_SERIAL.println("AT+HTTPTERM");
+  delay(1000);
   
   // Initialize HTTP
   sendATCommand("AT+HTTPINIT", "OK", 2000);
@@ -177,12 +305,38 @@ void initGSM() {
   sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
   delay(500);
   
+  // Enable SSL if using HTTPS
+  if (strcmp(PROTOCOL, "https://") == 0) {
+    Serial.println(F("Enabling HTTPS/SSL..."));
+    sendATCommand("AT+HTTPSSL=1", "OK", 2000);
+    delay(500);
+  }
+  
   gsmReady = true;
   Serial.println(F("✓ GSM Module Ready!\n"));
 }
 
 void sendDataToBackend() {
   Serial.println(F("\n>>> Sending data to backend..."));
+  
+  // Check GPRS connection first
+  SIM800L_SERIAL.println("AT+SAPBR=2,1");
+  delay(1000);
+  
+  String bearerCheck = "";
+  unsigned long startTime = millis();
+  while (millis() - startTime < 2000) {
+    while (SIM800L_SERIAL.available()) {
+      char c = SIM800L_SERIAL.read();
+      bearerCheck += c;
+    }
+  }
+  
+  if (bearerCheck.indexOf("0.0.0.0") != -1) {
+    Serial.println(F("✗ GPRS not connected (no valid IP). Skipping send."));
+    Serial.println(F("  Try: Change APN to 'internet' or check SIM data plan"));
+    return;
+  }
   
   // Build JSON payload with all your sensors
   String jsonData = "{";
@@ -200,8 +354,27 @@ void sendDataToBackend() {
   Serial.print(F("Payload: "));
   Serial.println(jsonData);
   
+  // Terminate previous HTTP session (if any)
+  SIM800L_SERIAL.println("AT+HTTPTERM");
+  delay(500);
+  sendATCommand("AT+HTTPINIT", "OK", 2000);
+  delay(500);
+  sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+  delay(500);
+  
+  // Enable SSL if using HTTPS
+  if (strcmp(PROTOCOL, "https://") == 0) {
+    sendATCommand("AT+HTTPSSL=1", "OK", 2000);
+    delay(500);
+  }
+  
   // Set HTTP URL
-  String urlCmd = "AT+HTTPPARA=\"URL\",\"http://" + String(BACKEND_URL) + String(BACKEND_PATH) + "\"";
+  String urlCmd = "AT+HTTPPARA=\"URL\",\"" + String(PROTOCOL) + String(BACKEND_URL) + String(BACKEND_PATH) + "\"";
+  Serial.print(F("URL: "));
+  Serial.print(PROTOCOL);
+  Serial.print(BACKEND_URL);
+  Serial.println(BACKEND_PATH);
+  
   sendATCommand(urlCmd.c_str(), "OK", 2000);
   delay(500);
   
@@ -223,11 +396,66 @@ void sendDataToBackend() {
     delay(5000);
     
     // Get response
-    if (waitForResponse("+HTTPACTION:", 10000)) {
-      Serial.println(F("✓ Data sent successfully!"));
+    if (waitForResponse("+HTTPACTION:", 15000)) {
+      // Read the full response to check status code
+      String httpResponse = "";
+      unsigned long startTime = millis();
+      delay(1000);
+      
+      while (millis() - startTime < 2000) {
+        while (SIM800L_SERIAL.available()) {
+          char c = SIM800L_SERIAL.read();
+          httpResponse += c;
+        }
+      }
+      
+      // Parse status code from +HTTPACTION: <method>,<status>,<datalen>
+      int firstComma = httpResponse.indexOf(',');
+      int secondComma = httpResponse.indexOf(',', firstComma + 1);
+      
+      if (firstComma > 0 && secondComma > firstComma) {
+        String statusStr = httpResponse.substring(firstComma + 1, secondComma);
+        int statusCode = statusStr.toInt();
+        
+        Serial.print(F("HTTP Status: "));
+        Serial.println(statusCode);
+        
+        if (statusCode == 200 || statusCode == 201) {
+          Serial.println(F("✓ Data sent successfully!"));
+        } else if (statusCode == 307) {
+          Serial.println(F("✗ ERROR 307: Temporary Redirect (HTTP → HTTPS)"));
+          Serial.println(F("  Solution: Backend requires HTTPS"));
+          Serial.println(F("  Change line 44: const char* PROTOCOL = \"https://\";"));
+          Serial.println(F("  Note: If HTTPS fails, you need an HTTP proxy"));
+        } else if (statusCode == 601) {
+          Serial.println(F("✗ ERROR 601: Network/DNS error"));
+          Serial.println(F("  Troubleshooting:"));
+          Serial.println(F("  1. SIM800L doesn't support HTTPS - try HTTP"));
+          Serial.println(F("     Change line 41: const char* PROTOCOL = \"http://\";"));
+          Serial.println(F("  2. Verify GPRS has valid IP (not 0.0.0.0)"));
+          Serial.println(F("  3. Test different APN: 'internet' or 'airtelgprs.com'"));
+        } else if (statusCode == 602) {
+          Serial.println(F("✗ ERROR 602: DNS resolution failed"));
+        } else if (statusCode == 603) {
+          Serial.println(F("✗ ERROR 603: Connection error"));
+        } else if (statusCode == 604) {
+          Serial.println(F("✗ ERROR 604: Connection closed by server"));
+        } else if (statusCode == 606) {
+          Serial.println(F("✗ ERROR 606: SSL/TLS Connection Failed"));
+          Serial.println(F("  CAUSE: SIM800L power supply can't handle HTTPS"));
+          Serial.println(F("  SOLUTION: Use HTTP proxy (included in your project)"));
+          Serial.println(F("  1. Deploy http-proxy-server.js to Render"));
+          Serial.println(F("  2. Update BACKEND_URL with proxy URL"));
+          Serial.println(F("  3. Ensure PROTOCOL = 'http://'"));
+        } else {
+          Serial.print(F("✗ HTTP Error: "));
+          Serial.println(statusCode);
+        }
+      }
+      
       sendATCommand("AT+HTTPREAD", "OK", 3000);
     } else {
-      Serial.println(F("✗ HTTP request failed"));
+      Serial.println(F("✗ HTTP request timeout"));
     }
   } else {
     Serial.println(F("✗ Failed to enter data mode"));
