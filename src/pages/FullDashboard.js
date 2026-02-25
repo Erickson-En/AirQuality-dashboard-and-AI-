@@ -5,15 +5,17 @@ import { api, socket } from "../config/api";
 
 // Threshold limits
 const LIMITS = {
+  pm1: 50,
   pm25: 150,
   pm10: 200,
   co: 9,
+  co2: 1000,
   o3: 120,
   no2: 200,
   temperature: 40,
   humidity: 90,
-  pressure: 1100,
-  light: 50000
+  voc_index: 250,
+  nox_index: 250
 };
 
 // Card severity colors
@@ -25,15 +27,15 @@ const SEVERITY_COLORS = {
 };
 
 const list = [
+  { label: "PM1.0", key:"pm1", unit:"µg/m³" },
   { label: "PM2.5", key:"pm25", unit:"µg/m³" },
   { label: "PM10", key:"pm10", unit:"µg/m³" },
   { label: "CO", key:"co", unit:"ppm" },
-  { label: "O3", key:"o3", unit:"ppb" },
-  { label: "NO2", key:"no2", unit:"ppb" },
+  { label: "CO₂", key:"co2", unit:"ppm" },
   { label: "Temp", key:"temperature", unit:"°C" },
   { label: "Humidity", key:"humidity", unit:"%" },
-  { label: "Pressure", key:"pressure", unit:"hPa" },
-  { label: "Light", key:"light", unit:"lux" }
+  { label: "VOC", key:"voc_index", unit:"index" },
+  { label: "NOx", key:"nox_index", unit:"index" }
 ];
 
 // Flatten incoming data

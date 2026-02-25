@@ -5,9 +5,11 @@ const readingSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now },
   location: String,
   metrics: {
+    pm1: Number,      // PM1.0 particulate matter
     pm25: Number,
     pm10: Number,
     co: Number,
+    co2: Number,      // CO2 from MH-Z19C sensor
     o3: Number,
     no2: Number,
     temperature: Number,

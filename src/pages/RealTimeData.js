@@ -60,12 +60,16 @@ export default function RealTimeData(){
     };
 
     return {
+      pm1: calculate('pm1'),
       pm25: calculate('pm25'),
       pm10: calculate('pm10'),
       co: calculate('co'),
+      co2: calculate('co2'),
       o3: calculate('o3'),
       temperature: calculate('temperature'),
-      humidity: calculate('humidity')
+      humidity: calculate('humidity'),
+      voc_index: calculate('voc_index'),
+      nox_index: calculate('nox_index')
     };
   }, [series]);
 
@@ -402,8 +406,15 @@ export default function RealTimeData(){
         </div>
       )}
 
-      {/* Main Metrics */}
+      {/* Main Metrics - All 9 Parameters */}
       <div className="cards-grid" style={{ marginBottom: '20px' }}>
+        {/* Particulate Matter */}
+        <MetricCard 
+          title="PM1.0" 
+          value={metrics.pm1} 
+          unit="µg/m³"
+          trend={stats?.pm1?.trend}
+        />
         <MetricCard 
           title="PM2.5" 
           value={metrics.pm25} 
@@ -416,6 +427,8 @@ export default function RealTimeData(){
           unit="µg/m³"
           trend={stats?.pm10?.trend}
         />
+        
+        {/* Gases */}
         <MetricCard 
           title="CO" 
           value={metrics.co} 
@@ -423,27 +436,39 @@ export default function RealTimeData(){
           trend={stats?.co?.trend}
         />
         <MetricCard 
-          title="O3" 
-          value={metrics.o3} 
-          unit="ppb"
-          trend={stats?.o3?.trend}
+          title="CO₂" 
+          value={metrics.co2} 
+          unit="ppm"
+          trend={stats?.co2?.trend}
         />
-        {metrics.temperature && (
-          <MetricCard 
-            title="Temperature" 
-            value={metrics.temperature} 
-            unit="°C"
-            trend={stats?.temperature?.trend}
-          />
-        )}
-        {metrics.humidity && (
-          <MetricCard 
-            title="Humidity" 
-            value={metrics.humidity} 
-            unit="%"
-            trend={stats?.humidity?.trend}
-          />
-        )}
+        
+        {/* Environmental */}
+        <MetricCard 
+          title="Temperature" 
+          value={metrics.temperature} 
+          unit="°C"
+          trend={stats?.temperature?.trend}
+        />
+        <MetricCard 
+          title="Humidity" 
+          value={metrics.humidity} 
+          unit="%"
+          trend={stats?.humidity?.trend}
+        />
+        
+        {/* VOC & NOx */}
+        <MetricCard 
+          title="VOC Index" 
+          value={metrics.voc_index} 
+          unit=""
+          trend={stats?.voc_index?.trend}
+        />
+        <MetricCard 
+          title="NOx Index" 
+          value={metrics.nox_index} 
+          unit=""
+          trend={stats?.nox_index?.trend}
+        />
       </div>
 
       {/* Statistics Panel */}
