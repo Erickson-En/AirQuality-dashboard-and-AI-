@@ -36,7 +36,7 @@ const long GSM_BAUD = 9600;
 // APN for your carrier (Kenya):
 // Safaricom: "safaricom" or "internet" 
 // Airtel: "internet" or "airtelgprs.com"
-const char* APN = "internet";  
+const char* APN = "safaricom";  
 
 // -------------------------------------------------------
 // RAILWAY TCP PROXY SETUP:
@@ -59,7 +59,7 @@ const char* BACKEND_PATH = "/api/sensor-data";
 const char* PROTOCOL = "http://";
 
 // Send interval (milliseconds)
-const unsigned long SEND_INTERVAL = 60000;  // Send data every 60 seconds
+const unsigned long SEND_INTERVAL = 300000;  // Send data every 5 minutes (was 60s - reduced to prevent Railway log flooding)
 unsigned long lastSendTime = 0;
 bool gsmReady = false;
 
@@ -325,6 +325,12 @@ void initGSM() {
 }
 
 void sendDataToBackend() {
+  // Guard: skip if all primary sensor values are still zero (sensors not ready)
+  if (pm2_5 == 0 && pm10 == 0 && temperature == 0.0 && humidity == 0.0) {
+    Serial.println(F("⚠ Skipping send: sensor readings not ready (all zero)"));
+    return;
+  }
+
   Serial.println(F("\n>>> Sending data to backend..."));
   
   // Check GPRS connection first

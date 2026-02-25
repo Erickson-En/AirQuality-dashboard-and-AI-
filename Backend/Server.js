@@ -61,11 +61,9 @@ app.use(cors({
     const isAllowed = allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin));
     
     if (isAllowed) {
-      console.log('✓ CORS allowed:', origin);
       return cb(null, true);
     }
 
-    console.log('✗ CORS blocked:', origin);
     return cb(new Error('CORS blocked: ' + origin));
   },
   credentials: true
@@ -138,13 +136,12 @@ async function processAlerts(normalized) {
 // ------------------------------------------------------------
 app.post("/api/sensor-data", async (req, res) => {
   try {
-    // GSM device sends:
-    // {
-    //   "location": "Site A",
-    //   "metrics": { "pm25": 35, "pm10": 82, "co": 4 }
-    // }
-
     const payload = req.body;
+
+    // Reject empty or malformed bodies (e.g. fragmented GSM packets)
+    if (!payload || typeof payload !== 'object' || !payload.metrics || typeof payload.metrics !== 'object' || Object.keys(payload.metrics).length === 0) {
+      return res.status(400).json({ error: "Invalid or incomplete payload" });
+    }
 
     const savedDoc = await new Reading({
       location: payload.location || "Nairobi",
@@ -173,6 +170,11 @@ app.post("/api/sensor-data", async (req, res) => {
 app.post("/api/airdata", async (req, res) => {
   try {
     const payload = req.body;
+
+    // Reject empty or malformed bodies (e.g. fragmented GSM packets)
+    if (!payload || typeof payload !== 'object' || !payload.metrics || typeof payload.metrics !== 'object' || Object.keys(payload.metrics).length === 0) {
+      return res.status(400).json({ error: "Invalid or incomplete payload" });
+    }
 
     const savedDoc = await new Reading({
       location: payload.location || "Nairobi",
@@ -246,9 +248,9 @@ app.get("/api/settings/:userId", async (req, res) => {
 app.use("/api/chatbot", chatbotRouter);
 
 // ---------- SOCKET.IO ----------
-io.on("connection", socket =>
-  console.log("WebSocket client connected:", socket.id)
-);
+io.on("connection", socket => {
+  // Suppress per-connection logs to avoid Railway log rate limits
+});
 
 // ---------- HEALTH ----------
 app.get("/health", (_, res) => res.json({ status: "ok" }));
