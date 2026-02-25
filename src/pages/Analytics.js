@@ -8,11 +8,15 @@ import {
 } from 'recharts';
 
 const metrics = [
+  { label: 'PM1.0', key: 'pm1', color: '#00d4ff', threshold: 50, unit: 'µg/m³' },
   { label: 'PM2.5', key: 'pm25', color: '#00e5ff', threshold: 35, unit: 'µg/m³' },
   { label: 'PM10', key: 'pm10', color: '#7d4bff', threshold: 150, unit: 'µg/m³' },
   { label: 'CO', key: 'co', color: '#ff7a00', threshold: 9, unit: 'ppm' },
-  { label: 'O3', key: 'o3', color: '#ff1f7a', threshold: 100, unit: 'ppb' },
-  { label: 'NO2', key: 'no2', color: '#9c27b0', threshold: 100, unit: 'ppb' },
+  { label: 'CO₂', key: 'co2', color: '#ff5722', threshold: 1000, unit: 'ppm' },
+  { label: 'Temperature', key: 'temperature', color: '#ffb300', threshold: 40, unit: '°C' },
+  { label: 'Humidity', key: 'humidity', color: '#00bcd4', threshold: 80, unit: '%' },
+  { label: 'VOC Index', key: 'voc_index', color: '#9c27b0', threshold: 250, unit: '' },
+  { label: 'NOx Index', key: 'nox_index', color: '#e91e63', threshold: 250, unit: '' },
 ];
 
 export default function Analytics(){

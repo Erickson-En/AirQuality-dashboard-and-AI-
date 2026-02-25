@@ -1,14 +1,13 @@
 /*
- * AIR QUALITY SENSOR WITH GSM - INTEGRATED VERSION
- * =================================================
- * Your existing code + GSM data transmission to backend
- * 
+ * AIR QUALITY SENSOR WITH GSM + CO2 (MH-Z19C) - INTEGRATED VERSION
+ * ================================================================
  * Hardware:
- * - Arduino (your current setup)
- * - PMS5003, DHT11, MQ-7, SGP41, RTC, Display (already connected)
- * - SIM800L on Serial1 (you already have this defined)
- * 
- * Backend: Sends data to your deployed backend every 60 seconds
+ * - Arduino Mega (or compatible with multiple hardware serials)
+ * - PMS5003 (Serial3)
+ * - MH-Z19C (Serial2)
+ * - SIM800L (Serial1)
+ * - DHT11, MQ-7, SGP41, RTC, Display
+ * * Backend: Sends data (including new CO2 metrics) every 5 minutes
  */
 
 #include <Arduino.h>
@@ -19,6 +18,7 @@
 #include <SensirionI2CSgp41.h>
 #include <VOCGasIndexAlgorithm.h>
 #include <NOxGasIndexAlgorithm.h>
+#include <MHZ19.h> 
 
 // ----------------------
 // Pin definitions
@@ -31,35 +31,17 @@
 const long GSM_BAUD = 9600;
 
 // ----------------------
-// GSM CONFIGURATION - UPDATE THESE!
+// GSM CONFIGURATION 
 // ----------------------
-// APN for your carrier (Kenya):
-// Safaricom: "safaricom" or "internet" 
-// Airtel: "internet" or "airtelgprs.com"
 const char* APN = "safaricom";  
 
-// -------------------------------------------------------
-// RAILWAY TCP PROXY SETUP:
-// Your Railway public domain (backend-air-quality-production.up.railway.app)
-// forces HTTPS which SIM800L can't handle.
-//
-// Your TCP proxy bypasses this. To get the correct values:
-// 1. Go to railway.app → your backend service → Settings → Networking
-// 2. Under "TCP Proxy" section, copy the EXTERNAL hostname and port
-//    It looks like:  roundhouse.proxy.rlwy.net   and port e.g. 34521
-//    (NOT the internal .railway.internal address)
-// 3. Also make sure the TCP proxy target port is set to 8080
-//    (Your app runs on PORT 8080 - check Railway service settings)
-// -------------------------------------------------------
-const char* BACKEND_URL = "yamanote.proxy.rlwy.net"; // Railway TCP proxy hostname
-const int   BACKEND_PORT = 45265;                     // Railway TCP proxy external port
+// Railway TCP Proxy Setup
+const char* BACKEND_URL = "yamanote.proxy.rlwy.net"; 
+const int   BACKEND_PORT = 45265;                    
 const char* BACKEND_PATH = "/api/sensor-data";
-
-// Plain HTTP via Railway TCP Proxy (bypasses Railway's HTTPS enforcement)
 const char* PROTOCOL = "http://";
 
-// Send interval (milliseconds)
-const unsigned long SEND_INTERVAL = 300000;  // Send data every 5 minutes (was 60s - reduced to prevent Railway log flooding)
+const unsigned long SEND_INTERVAL = 300000;  // Send data every 5 minutes
 unsigned long lastSendTime = 0;
 bool gsmReady = false;
 
@@ -69,6 +51,7 @@ bool gsmReady = false;
 DHT dht(DHTPIN, DHTTYPE);
 RTC_DS3231 rtc;
 U8G2_ST7920_128X64_F_SW_SPI u8g2(U8G2_R0, 13, 11, 10, 8);
+MHZ19 myMHZ19; 
 
 SensirionI2CSgp41 sgp41;
 VOCGasIndexAlgorithm voc_helper;
@@ -83,6 +66,7 @@ const unsigned long pageInterval = 4000;
 
 uint16_t pm1_0 = 0, pm2_5 = 0, pm10 = 0;
 int32_t voc_index = 0, nox_index = 0;
+int co2_ppm = 0; 
 uint16_t conditioning_s = 10; 
 
 float humidity = 0;
@@ -90,12 +74,12 @@ float temperature = 0;
 float CO_ppm = 0;
 
 // ----------------------
-// Read PMS5003
+// Read PMS5003 (Serial3)
 // ----------------------
 bool readPMS5003() {
-  if (Serial2.available() < 32) return false;
+  if (Serial3.available() < 32) return false; 
   uint8_t data[32];
-  Serial2.readBytes(data, 32);
+  Serial3.readBytes(data, 32);                
   if (data[0] != 0x42 || data[1] != 0x4D) return false;
   
   pm1_0 = (data[10] << 8) | data[11];
@@ -155,8 +139,6 @@ bool waitForResponse(const char* expected, unsigned long timeout) {
 
 bool checkNetworkRegistration() {
   Serial.println(F("Checking network registration..."));
-  
-  // Check network registration status
   SIM800L_SERIAL.println("AT+CREG?");
   delay(1000);
   
@@ -171,7 +153,6 @@ bool checkNetworkRegistration() {
     }
   }
   
-  // +CREG: 0,1 or +CREG: 0,5 means registered
   if (response.indexOf("+CREG: 0,1") != -1 || response.indexOf("+CREG: 0,5") != -1) {
     Serial.println(F("✓ Network registered"));
     return true;
@@ -184,15 +165,12 @@ bool checkNetworkRegistration() {
 void initGSM() {
   Serial.println(F("\n=== Initializing GSM ==="));
   
-  // Test AT
   sendATCommand("AT", "OK", 2000);
   delay(500);
   
-  // Disable echo
   sendATCommand("ATE0", "OK", 2000);
   delay(500);
   
-  // Check SIM
   if (sendATCommand("AT+CPIN?", "READY", 5000)) {
     Serial.println(F("✓ SIM card ready"));
   } else {
@@ -200,16 +178,13 @@ void initGSM() {
     return;
   }
   
-  // Signal strength
   sendATCommand("AT+CSQ", "OK", 2000);
   delay(500);
   
-  // Check network registration
   if (!checkNetworkRegistration()) {
     Serial.println(F("Warning: Network not registered. Continuing anyway..."));
   }
   
-  // Check GPRS attachment
   Serial.println(F("Checking GPRS attachment..."));
   SIM800L_SERIAL.println("AT+CGATT?");
   delay(2000);
@@ -224,27 +199,20 @@ void initGSM() {
     }
   }
   
-  // If not attached (+CGATT: 0), try to attach
   if (attachResponse.indexOf("+CGATT: 0") != -1) {
     Serial.println(F("\n✗ Not attached to GPRS. Attempting to attach..."));
     sendATCommand("AT+CGATT=1", "OK", 10000);
-    delay(5000);  // Wait for attachment
-    
-    // Verify attachment
+    delay(5000); 
     sendATCommand("AT+CGATT?", "+CGATT: 1", 5000);
   } else if (attachResponse.indexOf("+CGATT: 1") != -1) {
     Serial.println(F("\n✓ GPRS attached"));
   }
   
-  // Connect to GPRS
   Serial.println(F("Connecting to GPRS bearer..."));
-  
-  // First, close any existing bearer
   Serial.println(F("Closing any existing bearer..."));
   SIM800L_SERIAL.println("AT+SAPBR=0,1");
-  delay(3000);  // Wait for close
+  delay(3000); 
   
-  // Configure bearer
   sendATCommand("AT+SAPBR=3,1,\"CONTYPE\",\"GPRS\"", "OK", 2000);
   delay(500);
   
@@ -252,20 +220,14 @@ void initGSM() {
   sendATCommand(apnCmd.c_str(), "OK", 2000);
   delay(500);
   
-  // Try opening bearer with extended timeout (can take 30+ seconds)
   Serial.println(F("Opening GPRS bearer (this may take 30-60 seconds)..."));
   if (sendATCommand("AT+SAPBR=1,1", "OK", 65000)) {
     Serial.println(F("✓ Bearer opened"));
   } else {
     Serial.println(F("✗ Bearer open failed"));
-    Serial.println(F("  Possible issues:"));
-    Serial.println(F("  - SIM card has no active data plan"));
-    Serial.println(F("  - Wrong APN (try 'internet' or leave blank)"));
-    Serial.println(F("  - Network congestion - wait and retry"));
   }
-  delay(5000);  // Wait for connection to stabilize
+  delay(5000); 
   
-  // Check bearer status and IP
   Serial.println(F("Checking bearer status..."));
   SIM800L_SERIAL.println("AT+SAPBR=2,1");
   delay(2000);
@@ -280,43 +242,23 @@ void initGSM() {
     }
   }
   
-  // Check if we got a valid IP (not 0.0.0.0)
   if (bearerResponse.indexOf("0.0.0.0") != -1) {
     Serial.println(F("\n✗ GPRS Connection Failed: No IP assigned"));
-    Serial.println(F("  CRITICAL: SIM card is NOT connected to data network"));
-    Serial.println(F("  Solutions to try:"));
-    Serial.println(F("  1. Verify SIM has active DATA plan (not just airtime)"));
-    Serial.println(F("  2. Try APN: 'internet' (change line 38)"));
-    Serial.println(F("  3. Try empty APN: const char* APN = \"\";"));
-    Serial.println(F("  4. Contact carrier to enable data on this SIM"));
-    Serial.println(F("  5. Test SIM in a phone - can you browse internet?"));
     gsmReady = false;
     return;
   } else if (bearerResponse.indexOf("+SAPBR: 1,1") != -1) {
     Serial.println(F("\n✓ GPRS Connected with valid IP!"));
-  } else {
-    Serial.println(F("\n⚠ Unknown bearer status"));
-    // Extract and show the actual response
-    int sapbrIndex = bearerResponse.indexOf("+SAPBR:");
-    if (sapbrIndex != -1) {
-      String statusLine = bearerResponse.substring(sapbrIndex, bearerResponse.indexOf("\n", sapbrIndex));
-      Serial.print(F("  Status: "));
-      Serial.println(statusLine);
-    }
   }
   
-  // Terminate any existing HTTP session
   SIM800L_SERIAL.println("AT+HTTPTERM");
   delay(1000);
   
-  // Initialize HTTP
   sendATCommand("AT+HTTPINIT", "OK", 2000);
   delay(500);
   
   sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
   delay(500);
   
-  // Disable SSL - using plain HTTP via Railway TCP proxy
   sendATCommand("AT+HTTPSSL=0", "OK", 2000);
   delay(500);
   
@@ -325,15 +267,14 @@ void initGSM() {
 }
 
 void sendDataToBackend() {
-  // Guard: skip if all primary sensor values are still zero (sensors not ready)
-  if (pm2_5 == 0 && pm10 == 0 && temperature == 0.0 && humidity == 0.0) {
+  // Guard: skip if primary sensor values are still zero
+  if (pm2_5 == 0 && pm10 == 0 && temperature == 0.0 && humidity == 0.0 && co2_ppm == 0) {
     Serial.println(F("⚠ Skipping send: sensor readings not ready (all zero)"));
     return;
   }
 
   Serial.println(F("\n>>> Sending data to backend..."));
   
-  // Check GPRS connection first
   SIM800L_SERIAL.println("AT+SAPBR=2,1");
   delay(1000);
   
@@ -348,17 +289,18 @@ void sendDataToBackend() {
   
   if (bearerCheck.indexOf("0.0.0.0") != -1) {
     Serial.println(F("✗ GPRS not connected (no valid IP). Skipping send."));
-    Serial.println(F("  Try: Change APN to 'internet' or check SIM data plan"));
     return;
   }
   
-  // Build JSON payload with all your sensors
+  // Build JSON payload with ALL sensors, including CO2
   String jsonData = "{";
-  jsonData += "\"location\":\"Nairobi\",";  // Change to your location
+  jsonData += "\"location\":\"Nairobi\",";  
   jsonData += "\"metrics\":{";
+  jsonData += "\"pm1\":" + String(pm1_0) + ",";
   jsonData += "\"pm25\":" + String(pm2_5) + ",";
   jsonData += "\"pm10\":" + String(pm10) + ",";
   jsonData += "\"co\":" + String(CO_ppm, 2) + ",";
+  jsonData += "\"co2\":" + String(co2_ppm) + ","; // ADDED CO2 HERE
   jsonData += "\"temperature\":" + String(temperature, 1) + ",";
   jsonData += "\"humidity\":" + String(humidity, 1) + ",";
   jsonData += "\"voc_index\":" + String(voc_index) + ",";
@@ -368,7 +310,6 @@ void sendDataToBackend() {
   Serial.print(F("Payload: "));
   Serial.println(jsonData);
   
-  // Terminate previous HTTP session (if any)
   SIM800L_SERIAL.println("AT+HTTPTERM");
   delay(500);
   sendATCommand("AT+HTTPINIT", "OK", 2000);
@@ -376,25 +317,18 @@ void sendDataToBackend() {
   sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
   delay(500);
   
-  // Disable SSL - plain HTTP via TCP proxy
   sendATCommand("AT+HTTPSSL=0", "OK", 2000);
   delay(500);
   
-  // Build URL with explicit port for TCP proxy
-  // Format: http://hostname:port/path
   String fullUrl = String(PROTOCOL) + String(BACKEND_URL) + ":" + String(BACKEND_PORT) + String(BACKEND_PATH);
   String urlCmd = "AT+HTTPPARA=\"URL\",\"" + fullUrl + "\"";
-  Serial.print(F("URL: "));
-  Serial.println(fullUrl);
   
   sendATCommand(urlCmd.c_str(), "OK", 2000);
   delay(500);
   
-  // Set content type
   sendATCommand("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
   delay(500);
   
-  // Set POST data
   String dataCmd = "AT+HTTPDATA=" + String(jsonData.length()) + ",10000";
   SIM800L_SERIAL.println(dataCmd);
   delay(1000);
@@ -403,13 +337,10 @@ void sendDataToBackend() {
     SIM800L_SERIAL.println(jsonData);
     delay(2000);
     
-    // Execute HTTP POST
     SIM800L_SERIAL.println("AT+HTTPACTION=1");
     delay(5000);
     
-    // Get response
     if (waitForResponse("+HTTPACTION:", 15000)) {
-      // Read the full response to check status code
       String httpResponse = "";
       unsigned long startTime = millis();
       delay(1000);
@@ -421,7 +352,6 @@ void sendDataToBackend() {
         }
       }
       
-      // Parse status code from +HTTPACTION: <method>,<status>,<datalen>
       int firstComma = httpResponse.indexOf(',');
       int secondComma = httpResponse.indexOf(',', firstComma + 1);
       
@@ -434,55 +364,11 @@ void sendDataToBackend() {
         
         if (statusCode == 200 || statusCode == 201) {
           Serial.println(F("✓ Data sent successfully!"));
-        } else if (statusCode == 301 || statusCode == 302 || statusCode == 307 || statusCode == 308) {
-          Serial.println(F("✗ ERROR: HTTP Redirect (Backend forcing HTTPS)"));
-          Serial.println(F("  CAUSE: Railway/Render require HTTPS, but you're using HTTP"));
-          Serial.println(F("  "));
-          Serial.println(F("  SOLUTION 1 (Try First): Use HTTPS"));
-          Serial.println(F("    Change line 43: const char* PROTOCOL = \"https://\";"));
-          Serial.println(F("    Reupload and test. May fail with error 606 if power is weak."));
-          Serial.println(F("  "));
-          Serial.println(F("  SOLUTION 2 (If HTTPS fails): Use HTTP Proxy"));
-          Serial.println(F("    1. Deploy http-proxy-server.js to Railway/Render"));
-          Serial.println(F("    2. Update BACKEND_URL to proxy URL (e.g., proxy-xxxxx.up.railway.app)"));
-          Serial.println(F("    3. Keep PROTOCOL = \"http://\" for proxy"));
-          Serial.println(F("    4. Proxy will forward HTTP → HTTPS for you"));
-        } else if (statusCode == 601) {
-          Serial.println(F("✗ ERROR 601: Network/DNS error"));
-          Serial.println(F("  Troubleshooting:"));
-          Serial.println(F("  1. SIM800L doesn't support HTTPS - try HTTP"));
-          Serial.println(F("     Change line 41: const char* PROTOCOL = \"http://\";"));
-          Serial.println(F("  2. Verify GPRS has valid IP (not 0.0.0.0)"));
-          Serial.println(F("  3. Test different APN: 'internet' or 'airtelgprs.com'"));
-        } else if (statusCode == 602) {
-          Serial.println(F("✗ ERROR 602: DNS resolution failed"));
-        } else if (statusCode == 603) {
-          Serial.println(F("✗ ERROR 603: Connection error"));
-        } else if (statusCode == 604) {
-          Serial.println(F("✗ ERROR 604: Connection closed by server"));
-        } else if (statusCode == 606) {
-          Serial.println(F("✗ ERROR 606: SSL/TLS Connection Failed"));
-          Serial.println(F("  CAUSE: SIM800L can't establish HTTPS connection"));
-          Serial.println(F("  Common reasons:"));
-          Serial.println(F("    - Insufficient power supply (SIM800L needs 2A, voltage drops during SSL)"));
-          Serial.println(F("    - SIM800L firmware doesn't support TLS 1.2+"));
-          Serial.println(F("  "));
-          Serial.println(F("  SOLUTION: Use HTTP Proxy (Recommended)"));
-          Serial.println(F("    1. Your project has http-proxy-server.js ready to use"));
-          Serial.println(F("    2. Deploy it to Railway:"));
-          Serial.println(F("       - Go to Railway dashboard"));
-          Serial.println(F("       - Create new service from http-proxy-server.js"));
-          Serial.println(F("       - Get the deployed URL (e.g., proxy-xxxxx.up.railway.app)"));
-          Serial.println(F("    3. Update Arduino code:"));
-          Serial.println(F("       - Line 40: BACKEND_URL = \"your-proxy-url.up.railway.app\""));
-          Serial.println(F("       - Line 43: PROTOCOL = \"http://\""));
-          Serial.println(F("    4. Proxy will forward: Arduino HTTP → Proxy → Backend HTTPS"));
         } else {
-          Serial.print(F("✗ HTTP Error: "));
+          Serial.print(F("✗ HTTP Error/Redirect Code: "));
           Serial.println(statusCode);
         }
       }
-      
       sendATCommand("AT+HTTPREAD", "OK", 3000);
     } else {
       Serial.println(F("✗ HTTP request timeout"));
@@ -490,7 +376,6 @@ void sendDataToBackend() {
   } else {
     Serial.println(F("✗ Failed to enter data mode"));
   }
-  
   delay(1000);
 }
 
@@ -504,19 +389,23 @@ void setup() {
   Wire.begin(); 
   rtc.begin();
   sgp41.begin(Wire);
-  Serial2.begin(9600);
-  SIM800L_SERIAL.begin(GSM_BAUD);
+  
+  // Serial Port Assignments
+  Serial3.begin(9600);    // PMS5003
+  Serial2.begin(9600);    // MH-Z19C
+  myMHZ19.begin(Serial2); // Link MHZ19 library
+  
+  SIM800L_SERIAL.begin(GSM_BAUD); // SIM800L on Serial1
   
   if (rtc.lostPower()) {
-    // rtc.adjust(DateTime(2026, 02, 13, 11, 01, 0)); 
+    // rtc.adjust(DateTime(2026, 02, 19, 22, 0, 0)); 
   }
   
   Serial.println(F("\n================================"));
-  Serial.println(F("Air Quality Monitor with GSM"));
+  Serial.println(F("Air Quality Monitor with GSM & CO2"));
   Serial.println(F("================================\n"));
   
-  // Initialize GSM
-  delay(3000);  // Wait for GSM module to boot
+  delay(3000); 
   initGSM();
 }
 
@@ -524,8 +413,10 @@ void setup() {
 // MAIN LOOP
 // ----------------------
 void loop() {
-  // Read all sensors (your existing code)
   readPMS5003();
+
+  // Read MH-Z19C from Serial2
+  co2_ppm = myMHZ19.getCO2();
 
   // SGP41 Reading
   uint16_t srawVoc = 0, srawNox = 0;
@@ -538,6 +429,7 @@ void loop() {
   voc_index = voc_helper.process(srawVoc);
   nox_index = nox_helper.process(srawNox);
 
+  // Remaining Sensors
   humidity = dht.readHumidity();
   temperature = dht.readTemperature();
   int mq7_raw = analogRead(MQ7_PIN);
@@ -548,13 +440,11 @@ void loop() {
   sprintf(timeStr, "%02d:%02d:%02d", now.hour(), now.minute(), now.second());
   sprintf(dateStr, "%02d/%02d/%d", now.day(), now.month(), now.year());
 
-  // Page switching logic
   if (millis() - lastSwitchTime > pageInterval) {
     page = (page + 1) % 4; 
     lastSwitchTime = millis();
   }
 
-  // Display rendering (your existing code)
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_ncenB08_tr);
 
@@ -589,24 +479,26 @@ void loop() {
       u8g2.drawStr(10, 60, nStr);
     }
   }
-  // --- PAGE 2: ENVIRONMENT (Temp, Hum, CO) ---
+  // --- PAGE 2: ENVIRONMENT (Temp, Hum, CO, CO2) ---
   else if (page == 2) {
-    u8g2.drawStr(25, 25, "[ ENVIRONMENT ]");
-    char tStr[20], hStr[20], coStr[20];
-    sprintf(tStr,  "Temp: %.1f C", temperature);
-    sprintf(hStr,  "Hum : %.1f %%", humidity);
-    sprintf(coStr, "CO  : %.1f ppm", CO_ppm);
+    u8g2.drawStr(25, 23, "[ ENVIRONMENT ]");
+    char tStr[20], hStr[20], coStr[20], co2Str[20];
+    sprintf(tStr,   "Temp: %.1f C", temperature);
+    sprintf(hStr,   "Hum : %.1f %%", humidity);
+    sprintf(coStr,  "CO  : %.1f ppm", CO_ppm);
+    sprintf(co2Str, "CO2 : %d ppm", co2_ppm); 
     
-    u8g2.drawStr(10, 40, tStr);
-    u8g2.drawStr(10, 52, hStr);
-    u8g2.drawStr(10, 64, coStr);
+    u8g2.drawStr(10, 34, tStr);
+    u8g2.drawStr(10, 44, hStr);
+    u8g2.drawStr(10, 54, coStr); 
+    u8g2.drawStr(10, 64, co2Str); 
   }
   // --- PAGE 3: ADVICE ---
   else if (page == 3) {
     u8g2.drawStr(30, 25, "[ ADVICE ]");
-    if (CO_ppm < 9 && pm2_5 < 35 && voc_index < 150) {
+    if (CO_ppm < 9 && pm2_5 < 35 && voc_index < 150 && co2_ppm < 1000) {
       u8g2.drawStr(15, 50, "Air Quality: GOOD");
-    } else if (CO_ppm > 35 || voc_index > 300 || pm2_5 > 75) {
+    } else if (CO_ppm > 35 || voc_index > 300 || pm2_5 > 75 || co2_ppm > 1500) {
       u8g2.drawStr(15, 50, "DANGER: VENTILATE!");
     } else {
       u8g2.drawStr(15, 50, "Quality: MODERATE");
@@ -620,7 +512,7 @@ void loop() {
   // ----------------------
   unsigned long currentTime = millis();
   if (currentTime - lastSendTime >= SEND_INTERVAL) {
-    if (gsmReady && conditioning_s == 0) {  // Only send after sensor warmup
+    if (gsmReady && conditioning_s == 0) {  
       sendDataToBackend();
     } else if (!gsmReady) {
       Serial.println(F("GSM not ready, attempting to reinitialize..."));

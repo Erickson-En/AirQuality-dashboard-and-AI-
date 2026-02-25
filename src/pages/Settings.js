@@ -2,7 +2,17 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../config/api';
 
-const defaults = { pm25:150, pm10:150, co:10, o3:100, no2:100 };
+const defaults = { 
+  pm1: 50,
+  pm25: 35, 
+  pm10: 150, 
+  co: 9, 
+  co2: 1000,
+  temperature: 40,
+  humidity: 80,
+  voc_index: 250,
+  nox_index: 250
+};
 
 export default function Settings(){
   const [thresholds, setThresholds] = useState(defaults);

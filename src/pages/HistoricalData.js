@@ -18,15 +18,15 @@ import {
 } from 'recharts';
 
 const metrics = [
+  { label: 'PM1.0', key: 'pm1', stroke: '#00d4ff', unit: 'µg/m³', threshold: 50, category: 'air' },
   { label: 'PM2.5', key: 'pm25', stroke: '#00e5ff', unit: 'µg/m³', threshold: 35, category: 'air' },
   { label: 'PM10', key: 'pm10', stroke: '#7d4bff', unit: 'µg/m³', threshold: 150, category: 'air' },
   { label: 'CO', key: 'co', stroke: '#ff7a00', unit: 'ppm', threshold: 9, category: 'air' },
-  { label: 'O3', key: 'o3', stroke: '#ff1f7a', unit: 'ppb', threshold: 100, category: 'air' },
-  { label: 'NO2', key: 'no2', stroke: '#9c27b0', unit: 'ppb', threshold: 100, category: 'air' },
+  { label: 'CO₂', key: 'co2', stroke: '#ff5722', unit: 'ppm', threshold: 1000, category: 'air' },
   { label: 'Temperature', key: 'temperature', stroke: '#ffb300', unit: '°C', threshold: null, category: 'env' },
   { label: 'Humidity', key: 'humidity', stroke: '#00bcd4', unit: '%', threshold: null, category: 'env' },
-  { label: 'Pressure', key: 'pressure', stroke: '#795548', unit: 'hPa', threshold: null, category: 'env' },
-  { label: 'Light', key: 'light', stroke: '#4caf50', unit: 'lux', threshold: null, category: 'env' }
+  { label: 'VOC Index', key: 'voc_index', stroke: '#9c27b0', unit: '', threshold: 250, category: 'air' },
+  { label: 'NOx Index', key: 'nox_index', stroke: '#e91e63', unit: '', threshold: 250, category: 'air' }
 ];
 
 export default function HistoricalData() {
