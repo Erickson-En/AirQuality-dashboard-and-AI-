@@ -60,7 +60,11 @@ app.use(cors({
     // Check if origin starts with any allowed origin (handles trailing slashes, ports, preview URLs)
     const isAllowed = allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin));
     
-    if (isAllowed) {
+    // Also allow all Vercel preview/production deployments for this project
+    const isVercelDeploy = origin.endsWith('.vercel.app') && 
+      (origin.includes('air-quality') || origin.includes('erickson-en'));
+
+    if (isAllowed || isVercelDeploy) {
       return cb(null, true);
     }
 
