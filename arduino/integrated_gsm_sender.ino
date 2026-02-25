@@ -33,21 +33,32 @@ const long GSM_BAUD = 9600;
 // ----------------------
 // GSM CONFIGURATION - UPDATE THESE!
 // ----------------------
-// Try these APNs for Kenya carriers:
-// Safaricom: "safaricom" or "internet" or "" (empty)
+// APN for your carrier (Kenya):
+// Safaricom: "safaricom" or "internet" 
 // Airtel: "internet" or "airtelgprs.com"
-const char* APN = "safaricom";  
+const char* APN = "internet";  
 
-// IMPORTANT: After deploying the proxy, replace "YOUR-PROXY-URL" with your actual proxy URL
-// Example: "air-quality-proxy-abc123.onrender.com"
-const char* BACKEND_URL = "YOUR-PROXY-URL.onrender.com";  // Your HTTP proxy URL
+// -------------------------------------------------------
+// RAILWAY TCP PROXY SETUP:
+// Your Railway public domain (backend-air-quality-production.up.railway.app)
+// forces HTTPS which SIM800L can't handle.
+//
+// Your TCP proxy bypasses this. To get the correct values:
+// 1. Go to railway.app → your backend service → Settings → Networking
+// 2. Under "TCP Proxy" section, copy the EXTERNAL hostname and port
+//    It looks like:  roundhouse.proxy.rlwy.net   and port e.g. 34521
+//    (NOT the internal .railway.internal address)
+// 3. Also make sure the TCP proxy target port is set to 8080
+//    (Your app runs on PORT 8080 - check Railway service settings)
+// -------------------------------------------------------
+const char* BACKEND_URL = "yamanote.proxy.rlwy.net"; // Railway TCP proxy hostname
+const int   BACKEND_PORT = 45265;                     // Railway TCP proxy external port
 const char* BACKEND_PATH = "/api/sensor-data";
 
-// CRITICAL: MUST use HTTP (not HTTPS) - SIM800L power supply can't handle SSL
-// The proxy will forward your HTTP request to the HTTPS backend
-const char* PROTOCOL = "http://";  // Changed to HTTP for proxy
+// Plain HTTP via Railway TCP Proxy (bypasses Railway's HTTPS enforcement)
+const char* PROTOCOL = "http://";
 
-// Send interval
+// Send interval (milliseconds)
 const unsigned long SEND_INTERVAL = 60000;  // Send data every 60 seconds
 unsigned long lastSendTime = 0;
 bool gsmReady = false;
@@ -305,12 +316,9 @@ void initGSM() {
   sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
   delay(500);
   
-  // Enable SSL if using HTTPS
-  if (strcmp(PROTOCOL, "https://") == 0) {
-    Serial.println(F("Enabling HTTPS/SSL..."));
-    sendATCommand("AT+HTTPSSL=1", "OK", 2000);
-    delay(500);
-  }
+  // Disable SSL - using plain HTTP via Railway TCP proxy
+  sendATCommand("AT+HTTPSSL=0", "OK", 2000);
+  delay(500);
   
   gsmReady = true;
   Serial.println(F("✓ GSM Module Ready!\n"));
@@ -362,18 +370,16 @@ void sendDataToBackend() {
   sendATCommand("AT+HTTPPARA=\"CID\",1", "OK", 2000);
   delay(500);
   
-  // Enable SSL if using HTTPS
-  if (strcmp(PROTOCOL, "https://") == 0) {
-    sendATCommand("AT+HTTPSSL=1", "OK", 2000);
-    delay(500);
-  }
+  // Disable SSL - plain HTTP via TCP proxy
+  sendATCommand("AT+HTTPSSL=0", "OK", 2000);
+  delay(500);
   
-  // Set HTTP URL
-  String urlCmd = "AT+HTTPPARA=\"URL\",\"" + String(PROTOCOL) + String(BACKEND_URL) + String(BACKEND_PATH) + "\"";
+  // Build URL with explicit port for TCP proxy
+  // Format: http://hostname:port/path
+  String fullUrl = String(PROTOCOL) + String(BACKEND_URL) + ":" + String(BACKEND_PORT) + String(BACKEND_PATH);
+  String urlCmd = "AT+HTTPPARA=\"URL\",\"" + fullUrl + "\"";
   Serial.print(F("URL: "));
-  Serial.print(PROTOCOL);
-  Serial.print(BACKEND_URL);
-  Serial.println(BACKEND_PATH);
+  Serial.println(fullUrl);
   
   sendATCommand(urlCmd.c_str(), "OK", 2000);
   delay(500);
@@ -422,11 +428,19 @@ void sendDataToBackend() {
         
         if (statusCode == 200 || statusCode == 201) {
           Serial.println(F("✓ Data sent successfully!"));
-        } else if (statusCode == 307) {
-          Serial.println(F("✗ ERROR 307: Temporary Redirect (HTTP → HTTPS)"));
-          Serial.println(F("  Solution: Backend requires HTTPS"));
-          Serial.println(F("  Change line 44: const char* PROTOCOL = \"https://\";"));
-          Serial.println(F("  Note: If HTTPS fails, you need an HTTP proxy"));
+        } else if (statusCode == 301 || statusCode == 302 || statusCode == 307 || statusCode == 308) {
+          Serial.println(F("✗ ERROR: HTTP Redirect (Backend forcing HTTPS)"));
+          Serial.println(F("  CAUSE: Railway/Render require HTTPS, but you're using HTTP"));
+          Serial.println(F("  "));
+          Serial.println(F("  SOLUTION 1 (Try First): Use HTTPS"));
+          Serial.println(F("    Change line 43: const char* PROTOCOL = \"https://\";"));
+          Serial.println(F("    Reupload and test. May fail with error 606 if power is weak."));
+          Serial.println(F("  "));
+          Serial.println(F("  SOLUTION 2 (If HTTPS fails): Use HTTP Proxy"));
+          Serial.println(F("    1. Deploy http-proxy-server.js to Railway/Render"));
+          Serial.println(F("    2. Update BACKEND_URL to proxy URL (e.g., proxy-xxxxx.up.railway.app)"));
+          Serial.println(F("    3. Keep PROTOCOL = \"http://\" for proxy"));
+          Serial.println(F("    4. Proxy will forward HTTP → HTTPS for you"));
         } else if (statusCode == 601) {
           Serial.println(F("✗ ERROR 601: Network/DNS error"));
           Serial.println(F("  Troubleshooting:"));
@@ -442,11 +456,21 @@ void sendDataToBackend() {
           Serial.println(F("✗ ERROR 604: Connection closed by server"));
         } else if (statusCode == 606) {
           Serial.println(F("✗ ERROR 606: SSL/TLS Connection Failed"));
-          Serial.println(F("  CAUSE: SIM800L power supply can't handle HTTPS"));
-          Serial.println(F("  SOLUTION: Use HTTP proxy (included in your project)"));
-          Serial.println(F("  1. Deploy http-proxy-server.js to Render"));
-          Serial.println(F("  2. Update BACKEND_URL with proxy URL"));
-          Serial.println(F("  3. Ensure PROTOCOL = 'http://'"));
+          Serial.println(F("  CAUSE: SIM800L can't establish HTTPS connection"));
+          Serial.println(F("  Common reasons:"));
+          Serial.println(F("    - Insufficient power supply (SIM800L needs 2A, voltage drops during SSL)"));
+          Serial.println(F("    - SIM800L firmware doesn't support TLS 1.2+"));
+          Serial.println(F("  "));
+          Serial.println(F("  SOLUTION: Use HTTP Proxy (Recommended)"));
+          Serial.println(F("    1. Your project has http-proxy-server.js ready to use"));
+          Serial.println(F("    2. Deploy it to Railway:"));
+          Serial.println(F("       - Go to Railway dashboard"));
+          Serial.println(F("       - Create new service from http-proxy-server.js"));
+          Serial.println(F("       - Get the deployed URL (e.g., proxy-xxxxx.up.railway.app)"));
+          Serial.println(F("    3. Update Arduino code:"));
+          Serial.println(F("       - Line 40: BACKEND_URL = \"your-proxy-url.up.railway.app\""));
+          Serial.println(F("       - Line 43: PROTOCOL = \"http://\""));
+          Serial.println(F("    4. Proxy will forward: Arduino HTTP → Proxy → Backend HTTPS"));
         } else {
           Serial.print(F("✗ HTTP Error: "));
           Serial.println(statusCode);

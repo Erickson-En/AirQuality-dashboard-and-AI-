@@ -25,7 +25,7 @@ app.post('/api/sensor-data', async (req, res) => {
   try {
     const response = await axios.post(`${BACKEND_URL}/api/sensor-data`, req.body, {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10000
+      timeout: 30000
     });
     
     console.log('✅ Forwarded to backend successfully');
