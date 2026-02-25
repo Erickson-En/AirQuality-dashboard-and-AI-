@@ -54,17 +54,16 @@ const allowedOrigins = [...defaultOrigins, ...envOrigins, ...productionOrigins];
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
+    // Allow requests with no origin (mobile apps, curl, Postman, Arduino, etc.)
     if (!origin) return cb(null, true);
 
-    // Check if origin starts with any allowed origin (handles trailing slashes, ports, preview URLs)
+    // Allow ALL Vercel deployments (preview + production)
+    if (origin.endsWith('.vercel.app')) return cb(null, true);
+
+    // Check if origin starts with any allowed origin (handles trailing slashes, ports)
     const isAllowed = allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin));
     
-    // Also allow all Vercel preview/production deployments for this project
-    const isVercelDeploy = origin.endsWith('.vercel.app') && 
-      (origin.includes('air-quality') || origin.includes('erickson-en'));
-
-    if (isAllowed || isVercelDeploy) {
+    if (isAllowed) {
       return cb(null, true);
     }
 
