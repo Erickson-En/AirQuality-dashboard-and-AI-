@@ -84,10 +84,13 @@ export default function RealTimeData(){
   const checkAlerts = (data) => {
     const newAlerts = [];
     const thresholds = {
+      pm1: { value: 50, label: 'PM1.0' },
       pm25: { value: 35.4, label: 'PM2.5' },
       pm10: { value: 154, label: 'PM10' },
       co: { value: 9, label: 'CO' },
-      o3: { value: 70, label: 'O3' }
+      co2: { value: 1000, label: 'CO₂' },
+      voc_index: { value: 250, label: 'VOC Index' },
+      nox_index: { value: 250, label: 'NOx Index' }
     };
 
     Object.keys(thresholds).forEach(key => {
@@ -159,15 +162,18 @@ export default function RealTimeData(){
 
   // Export data functions
   const exportCSV = () => {
-    const headers = ['Timestamp', 'PM2.5', 'PM10', 'CO', 'O3', 'Temperature', 'Humidity'];
+    const headers = ['Timestamp', 'PM1.0', 'PM2.5', 'PM10', 'CO', 'CO2', 'Temperature', 'Humidity', 'VOC Index', 'NOx Index'];
     const rows = series.map(s => [
       new Date(s.ts).toLocaleString(),
+      s.pm1 || '',
       s.pm25 || '',
       s.pm10 || '',
       s.co || '',
-      s.o3 || '',
+      s.co2 || '',
       s.temperature || '',
-      s.humidity || ''
+      s.humidity || '',
+      s.voc_index || '',
+      s.nox_index || ''
     ]);
     
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -216,9 +222,15 @@ export default function RealTimeData(){
       return (
         <AreaChart {...commonProps}>
           {commonAxis}
-          <Area type="monotone" dataKey="pm25" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
-          <Area type="monotone" dataKey="pm10" stroke="#82ca9d" fill="#82ca9d" fillOpacity={0.6} />
-          <Area type="monotone" dataKey="co" stroke="#ff7300" fill="#ff7300" fillOpacity={0.6} />
+          <Area type="monotone" dataKey="pm1" stroke="#00d4ff" fill="#00d4ff" fillOpacity={0.4} name="PM1.0" />
+          <Area type="monotone" dataKey="pm25" stroke="#8884d8" fill="#8884d8" fillOpacity={0.4} name="PM2.5" />
+          <Area type="monotone" dataKey="pm10" stroke="#82ca9d" fill="#82ca9d" fillOpacity={0.4} name="PM10" />
+          <Area type="monotone" dataKey="co" stroke="#ff7300" fill="#ff7300" fillOpacity={0.4} name="CO" />
+          <Area type="monotone" dataKey="co2" stroke="#ff5722" fill="#ff5722" fillOpacity={0.4} name="CO₂" />
+          <Area type="monotone" dataKey="temperature" stroke="#ffb300" fill="#ffb300" fillOpacity={0.4} name="Temp" />
+          <Area type="monotone" dataKey="humidity" stroke="#00bcd4" fill="#00bcd4" fillOpacity={0.4} name="Humidity" />
+          <Area type="monotone" dataKey="voc_index" stroke="#9c27b0" fill="#9c27b0" fillOpacity={0.4} name="VOC" />
+          <Area type="monotone" dataKey="nox_index" stroke="#e91e63" fill="#e91e63" fillOpacity={0.4} name="NOx" />
         </AreaChart>
       );
     }
@@ -226,9 +238,15 @@ export default function RealTimeData(){
     return (
       <LineChart {...commonProps}>
         {commonAxis}
-        <Line type="monotone" dataKey="pm25" stroke="#8884d8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-        <Line type="monotone" dataKey="pm10" stroke="#82ca9d" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-        <Line type="monotone" dataKey="co" stroke="#ff7300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+        <Line type="monotone" dataKey="pm1" stroke="#00d4ff" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM1.0" />
+        <Line type="monotone" dataKey="pm25" stroke="#8884d8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM2.5" />
+        <Line type="monotone" dataKey="pm10" stroke="#82ca9d" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM10" />
+        <Line type="monotone" dataKey="co" stroke="#ff7300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="CO" />
+        <Line type="monotone" dataKey="co2" stroke="#ff5722" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="CO₂" />
+        <Line type="monotone" dataKey="temperature" stroke="#ffb300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="Temp" />
+        <Line type="monotone" dataKey="humidity" stroke="#00bcd4" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="Humidity" />
+        <Line type="monotone" dataKey="voc_index" stroke="#9c27b0" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="VOC" />
+        <Line type="monotone" dataKey="nox_index" stroke="#e91e63" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="NOx" />
       </LineChart>
     );
   };
