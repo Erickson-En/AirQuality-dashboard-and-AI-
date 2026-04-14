@@ -183,18 +183,59 @@ export default function HistoricalData() {
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0, fontSize: 28, fontWeight: 'bold' }}>📊 Historical Data Analysis</h2>
         <p style={{ margin: '4px 0 0 0', opacity: 0.7, fontSize: 14 }}>
-          Comprehensive historical data with statistics, trends, and multi-view analysis
+          Comprehensive historical trends with statistics and multi-view analysis
         </p>
       </div>
       
+      {/* Summary Stats - like the reference repo */}
+      {!loading && rows.length > 0 && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: '12px',
+          marginBottom: '20px'
+        }}>
+          {metrics.map(m => {
+            const st = stats[m.key];
+            if (!st) return null;
+            return (
+              <div key={m.key} style={{
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                borderRadius: '10px',
+                padding: '14px',
+                border: '1px solid rgba(255,255,255,0.08)',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px', textTransform: 'uppercase', fontWeight: '600' }}>
+                  {m.label}
+                </div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: m.stroke, marginBottom: '8px' }}>
+                  {st.mean} {m.unit}
+                </div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                  <div>Min: {st.min} {m.unit}</div>
+                  <div>Max: {st.max} {m.unit}</div>
+                  {m.threshold && (
+                    <div style={{ color: st.exceedancePercentage > 0 ? '#ff6b6b' : '#00e400', marginTop: '4px' }}>
+                      Exceedances: {st.exceedancePercentage}%
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      
       {/* Controls Panel */}
       <div style={{ 
-        background: 'var(--card-bg)', 
+        background: 'rgba(255,255,255,0.05)', 
         padding: 16, 
         borderRadius: 12, 
         marginBottom: 16,
-        boxShadow: 'var(--glass-shadow)',
-        border: '1px solid var(--glass-border)'
+        boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        backdropFilter: 'blur(10px)'
       }}>
         {/* Timeframe Selection */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'center' }}>

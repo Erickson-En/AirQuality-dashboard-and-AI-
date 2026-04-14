@@ -73,6 +73,14 @@ export default function RealTimeData(){
     };
   }, [series]);
 
+  // Count active sensors (parameters with data)
+  const sensorKeys = ['pm1', 'pm25', 'pm10', 'co', 'co2', 'temperature', 'humidity', 'voc_index', 'nox_index'];
+  const activeSensors = useMemo(() => {
+    return sensorKeys.filter(key => metrics[key] != null).length;
+  }, [metrics]);
+  
+  const totalSensors = sensorKeys.length;
+
   // Calculate AQI
   const currentAQI = useMemo(() => {
     if (!metrics.pm25) return null;
@@ -357,6 +365,56 @@ export default function RealTimeData(){
           >
             📥 Export JSON
           </button>
+        </div>
+      </div>
+
+      {/* Active Sensors */}
+      <div style={{
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        marginBottom: '20px',
+        border: '1px solid rgba(255,255,255,0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px'
+      }}>
+        <span style={{
+          fontSize: '24px',
+          width: '44px',
+          height: '44px',
+          borderRadius: '50%',
+          backgroundColor: activeSensors === 9 ? 'rgba(0,228,0,0.15)' : activeSensors > 0 ? 'rgba(255,193,7,0.15)' : 'rgba(255,0,0,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>📡</span>
+        <div>
+          <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' }}>
+            Active Sensors
+          </div>
+          <div style={{ fontSize: '28px', fontWeight: '700', color: activeSensors === 9 ? '#00e400' : activeSensors > 0 ? '#ffc107' : '#ff0000' }}>
+            {activeSensors}/9
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginLeft: 'auto' }}>
+          {sensorKeys.map(key => {
+            const labels = { pm1: 'PM1.0', pm25: 'PM2.5', pm10: 'PM10', co: 'CO', co2: 'CO₂', temperature: 'Temp', humidity: 'Humid', voc_index: 'VOC', nox_index: 'NOx' };
+            const active = metrics[key] != null;
+            return (
+              <span key={key} style={{
+                fontSize: '11px',
+                padding: '3px 8px',
+                borderRadius: '12px',
+                backgroundColor: active ? 'rgba(0,228,0,0.15)' : 'rgba(255,0,0,0.1)',
+                color: active ? '#00e400' : 'rgba(255,255,255,0.3)',
+                border: `1px solid ${active ? 'rgba(0,228,0,0.3)' : 'rgba(255,255,255,0.1)'}`,
+                fontWeight: '500'
+              }}>
+                {labels[key]}
+              </span>
+            );
+          })}
         </div>
       </div>
 
