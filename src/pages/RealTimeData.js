@@ -4,8 +4,7 @@ import MetricCard from '../components/MetricCard';
 import { api, socket } from '../config/api';
 import { 
   ResponsiveContainer, LineChart, Line, CartesianGrid, Tooltip, XAxis, YAxis, 
-  Legend, Brush, AreaChart, Area, RadarChart, Radar, PolarGrid, PolarAngleAxis, 
-  PolarRadiusAxis
+  Legend, Brush
 } from 'recharts';
 
 const flattenReading = (payload) => (payload?.metrics
@@ -23,20 +22,20 @@ const calculateAQI = (pm25) => {
 };
 
 const getAQICategory = (aqi) => {
-  if (aqi <= 50) return { label: 'Good', color: '#00e400', icon: '😊' };
-  if (aqi <= 100) return { label: 'Moderate', color: '#ffff00', icon: '😐' };
-  if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', color: '#ff7e00', icon: '😷' };
-  if (aqi <= 200) return { label: 'Unhealthy', color: '#ff0000', icon: '😰' };
-  if (aqi <= 300) return { label: 'Very Unhealthy', color: '#8f3f97', icon: '😱' };
-  return { label: 'Hazardous', color: '#7e0023', icon: '☠️' };
+  if (aqi <= 50) return { label: 'Good', color: '#00e400' };
+  if (aqi <= 100) return { label: 'Moderate', color: '#ffff00' };
+  if (aqi <= 150) return { label: 'Unhealthy for Sensitive Groups', color: '#ff7e00' };
+  if (aqi <= 200) return { label: 'Unhealthy', color: '#ff0000' };
+  if (aqi <= 300) return { label: 'Very Unhealthy', color: '#8f3f97' };
+  return { label: 'Hazardous', color: '#7e0023' };
 };
 
 export default function RealTimeData(){
   const [metrics, setMetrics] = useState({});
   const [series, setSeries] = useState([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isServerConnected, setIsServerConnected] = useState(false);
+  const [isSensorActive, setIsSensorActive] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [chartType, setChartType] = useState('line');
   const [updateCount, setUpdateCount] = useState(0);
   const [alerts, setAlerts] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -119,8 +118,9 @@ export default function RealTimeData(){
     }
   };
 
-  useEffect(()=>{
+  useEffect(() => {
     let active = true;
+    let sensorTimeout;
 
     const seedLatest = async () => {
       try {
@@ -128,7 +128,7 @@ export default function RealTimeData(){
         if (!active || !resp?.data) return;
         const flat = flattenReading(resp.data);
         const ts = flat?.timestamp ? new Date(flat.timestamp).getTime() : Date.now();
-        setMetrics(prev=>({ ...prev, ...flat }));
+        setMetrics(prev => ({ ...prev, ...flat }));
         setSeries(prev => [...prev.slice(-49), { ...flat, ts }]);
         setLastUpdate(new Date());
       } catch (err) {
@@ -136,19 +136,46 @@ export default function RealTimeData(){
       }
     };
 
-    seedLatest();
+    const seedData = async () => {
+      try {
+        const resp = await api.get('/api/sensor-data/latest');
+        if (!active || !resp?.data) return;
+        const flat = flattenReading(resp.data);
+        const ts = flat?.timestamp ? new Date(flat.timestamp).getTime() : Date.now();
+        const aqi = flat.pm25 ? calculateAQI(flat.pm25) : null;
+        setMetrics(prev => ({ ...prev, ...flat }));
+        setSeries(prev => [...prev.slice(-49), { ...flat, ts, aqi }]);
+        setLastUpdate(new Date());
+      } catch (err) {
+        console.error('Failed to load latest sensor reading:', err);
+      }
+    };
+    
+    seedData();
     if (!socket.connected) socket.connect();
 
-    const handleConnect = () => setIsConnected(true);
-    const handleDisconnect = () => setIsConnected(false);
+    const handleConnect = () => setIsServerConnected(true);
+    const handleDisconnect = () => {
+      setIsServerConnected(false);
+      setIsSensorActive(false); 
+    };
 
     const handleSensor = (payload) => {
       if (!autoRefresh || !active) return;
       
+      // Data received, mark sensor active and reset watchdog timer
+      setIsSensorActive(true);
+      clearTimeout(sensorTimeout);
+      sensorTimeout = setTimeout(() => {
+        if (active) setIsSensorActive(false);
+      }, 5000); 
+
       const flat = flattenReading(payload);
       const ts = flat?.timestamp ? new Date(flat.timestamp).getTime() : Date.now();
-      setMetrics(prev=>({...prev, ...flat}));
-      setSeries(prev => [...prev.slice(-49), {...flat, ts}]);
+      const aqi = flat.pm25 ? calculateAQI(flat.pm25) : null;
+      
+      setMetrics(prev => ({...prev, ...flat}});
+      setSeries(prev => [...prev.slice(-49), {...flat, ts, aqi}]);
       setLastUpdate(new Date());
       setUpdateCount(prev => prev + 1);
       checkAlerts(flat);
@@ -158,15 +185,16 @@ export default function RealTimeData(){
     socket.on('disconnect', handleDisconnect);
     socket.on('sensorData', handleSensor);
 
-    if (socket.connected) setIsConnected(true);
+    if (socket.connected) setIsServerConnected(true);
 
-    return ()=> {
+    return () => {
       active = false;
+      clearTimeout(sensorTimeout);
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('sensorData', handleSensor);
     };
-  },[autoRefresh]);
+  }, [autoRefresh]);
 
   // Export data functions
   const exportCSV = () => {
@@ -204,13 +232,11 @@ export default function RealTimeData(){
   };
 
   const renderChart = () => {
-    const commonProps = {
-      data: series,
-      syncId: "realtime"
-    };
-
-    const commonAxis = (
-      <>
+    return (
+      <LineChart
+        data={series}
+        syncId="realtime"
+      >
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
         <XAxis 
           dataKey="ts" 
@@ -220,41 +246,13 @@ export default function RealTimeData(){
           tickFormatter={v=>new Date(v).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} 
         />
         <YAxis width={52} tickLine={false} />
-        <Tooltip labelFormatter={v=>new Date(v).toLocaleString()} />
+        <Tooltip 
+          labelFormatter={v=>new Date(v).toLocaleString()}
+          formatter={(value) => value ? value.toFixed(1) : 'N/A'}
+        />
         <Legend />
         <Brush height={14} travellerWidth={8} />
-      </>
-    );
-
-    if (chartType === 'area') {
-      return (
-        <AreaChart {...commonProps}>
-          {commonAxis}
-          <Area type="monotone" dataKey="pm1" stroke="#00d4ff" fill="#00d4ff" fillOpacity={0.4} name="PM1.0" />
-          <Area type="monotone" dataKey="pm25" stroke="#8884d8" fill="#8884d8" fillOpacity={0.4} name="PM2.5" />
-          <Area type="monotone" dataKey="pm10" stroke="#82ca9d" fill="#82ca9d" fillOpacity={0.4} name="PM10" />
-          <Area type="monotone" dataKey="co" stroke="#ff7300" fill="#ff7300" fillOpacity={0.4} name="CO" />
-          <Area type="monotone" dataKey="co2" stroke="#ff5722" fill="#ff5722" fillOpacity={0.4} name="CO₂" />
-          <Area type="monotone" dataKey="temperature" stroke="#ffb300" fill="#ffb300" fillOpacity={0.4} name="Temp" />
-          <Area type="monotone" dataKey="humidity" stroke="#00bcd4" fill="#00bcd4" fillOpacity={0.4} name="Humidity" />
-          <Area type="monotone" dataKey="voc_index" stroke="#9c27b0" fill="#9c27b0" fillOpacity={0.4} name="VOC" />
-          <Area type="monotone" dataKey="nox_index" stroke="#e91e63" fill="#e91e63" fillOpacity={0.4} name="NOx" />
-        </AreaChart>
-      );
-    }
-
-    return (
-      <LineChart {...commonProps}>
-        {commonAxis}
-        <Line type="monotone" dataKey="pm1" stroke="#00d4ff" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM1.0" />
-        <Line type="monotone" dataKey="pm25" stroke="#8884d8" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM2.5" />
-        <Line type="monotone" dataKey="pm10" stroke="#82ca9d" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="PM10" />
-        <Line type="monotone" dataKey="co" stroke="#ff7300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="CO" />
-        <Line type="monotone" dataKey="co2" stroke="#ff5722" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="CO₂" />
-        <Line type="monotone" dataKey="temperature" stroke="#ffb300" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="Temp" />
-        <Line type="monotone" dataKey="humidity" stroke="#00bcd4" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="Humidity" />
-        <Line type="monotone" dataKey="voc_index" stroke="#9c27b0" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="VOC" />
-        <Line type="monotone" dataKey="nox_index" stroke="#e91e63" strokeWidth={2} dot={false} activeDot={{ r: 3 }} name="NOx" />
+        <Line type="monotone" dataKey="aqi" stroke="#ff7300" strokeWidth={3} dot={false} activeDot={{ r: 5 }} name="AQI" />
       </LineChart>
     );
   };
@@ -275,9 +273,10 @@ export default function RealTimeData(){
             Real-Time Monitoring
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            {/* Server Status */}
             <span style={{ 
               fontSize: '14px', 
-              color: isConnected ? '#00e400' : '#ff0000',
+              color: isServerConnected ? '#00e400' : '#ff0000',
               display: 'flex',
               alignItems: 'center',
               gap: '6px'
@@ -286,11 +285,29 @@ export default function RealTimeData(){
                 width: '8px', 
                 height: '8px', 
                 borderRadius: '50%', 
-                backgroundColor: isConnected ? '#00e400' : '#ff0000',
-                animation: isConnected ? 'pulse 2s infinite' : 'none'
+                backgroundColor: isServerConnected ? '#00e400' : '#ff0000'
               }}></span>
-              {isConnected ? 'Connected' : 'Disconnected'}
+              {isServerConnected ? 'Server Online' : 'Server Offline'}
             </span>
+
+            {/* Sensor Status */}
+            <span style={{ 
+              fontSize: '14px', 
+              color: isSensorActive ? '#00b3ff' : '#ff9800',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <span style={{ 
+                width: '8px', 
+                height: '8px', 
+                borderRadius: '50%', 
+                backgroundColor: isSensorActive ? '#00b3ff' : '#ff9800',
+                animation: isSensorActive ? 'pulse 2s infinite' : 'none'
+              }}></span>
+              {isSensorActive ? 'Receiving Data' : 'Waiting for Sensor...'}
+            </span>
+
             {lastUpdate && (
               <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)' }}>
                 Last Update: {lastUpdate.toLocaleTimeString()}
@@ -318,7 +335,7 @@ export default function RealTimeData(){
               transition: 'all 0.3s'
             }}
           >
-            {autoRefresh ? '⏸ Pause' : '▶ Resume'}
+            {autoRefresh ? 'Pause' : 'Resume'}
           </button>
           <button
             onClick={() => setShowStats(!showStats)}
@@ -333,7 +350,7 @@ export default function RealTimeData(){
               fontWeight: '500'
             }}
           >
-            {showStats ? '📊 Hide Stats' : '📊 Show Stats'}
+            {showStats ? 'Hide Stats' : 'Show Stats'}
           </button>
           <button
             onClick={exportCSV}
@@ -348,7 +365,7 @@ export default function RealTimeData(){
               fontWeight: '500'
             }}
           >
-            📥 Export CSV
+            Export CSV
           </button>
           <button
             onClick={exportJSON}
@@ -363,7 +380,7 @@ export default function RealTimeData(){
               fontWeight: '500'
             }}
           >
-            📥 Export JSON
+            Export JSON
           </button>
         </div>
       </div>
@@ -380,7 +397,6 @@ export default function RealTimeData(){
         gap: '16px'
       }}>
         <span style={{
-          fontSize: '24px',
           width: '44px',
           height: '44px',
           borderRadius: '50%',
@@ -388,7 +404,7 @@ export default function RealTimeData(){
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center'
-        }}>📡</span>
+        }}></span>
         <div>
           <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.5)', marginBottom: '2px' }}>
             Active Sensors
@@ -442,9 +458,6 @@ export default function RealTimeData(){
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '32px', marginBottom: '4px' }}>
-              {currentAQI.icon}
-            </div>
             <div style={{ fontSize: '20px', fontWeight: '600' }}>
               {currentAQI.label}
             </div>
@@ -456,15 +469,15 @@ export default function RealTimeData(){
       {alerts.length > 0 && (
         <div style={{ marginBottom: '20px' }}>
           <h3 style={{ marginBottom: '12px', fontSize: '18px', fontWeight: '600' }}>
-            ⚠️ Recent Alerts
+            Recent Alerts
           </h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {alerts.map(alert => (
               <div
                 key={alert.id}
                 style={{
-                  backgroundColor: 'rgba(255,152,0,0.15)',
-                  border: '1px solid rgba(255,193,7,0.4)',
+                  backgroundColor: 'rgba(255,115,0,0.15)',
+                  border: '1px solid rgba(255,115,0,0.5)',
                   borderRadius: '8px',
                   padding: '12px',
                   display: 'flex',
@@ -591,50 +604,11 @@ export default function RealTimeData(){
         </div>
       )}
 
-      {/* Chart Section */}
+      {/* Chart Section - AQI Only */}
       <div className="charts-row">
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          marginBottom: '12px',
-          flexWrap: 'wrap',
-          gap: '12px'
-        }}>
-          <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>
-            Real-Time Trends (Last 50 Readings)
-          </h3>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => setChartType('line')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(255,255,255,0.1)',
-                backgroundColor: chartType === 'line' ? '#00b3ff' : 'rgba(255,255,255,0.05)',
-                color: '#fff',
-                cursor: 'pointer',
-                fontSize: '13px'
-              }}
-            >
-              Line Chart
-            </button>
-            <button
-              onClick={() => setChartType('area')}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '6px',
-                border: '1px solid rgba(255,255,255,0.1)',
-                backgroundColor: chartType === 'area' ? '#00b3ff' : 'rgba(255,255,255,0.05)',
-                color: '#fff',
-                cursor: 'pointer',
-                fontSize: '13px'
-              }}
-            >
-              Area Chart
-            </button>
-          </div>
-        </div>
+        <h3 style={{ marginBottom: '12px', fontSize: '18px', fontWeight: '600' }}>
+          Air Quality Index Trend 
+        </h3>
         
         <ResponsiveContainer width="100%" height={350}>
           {renderChart()}

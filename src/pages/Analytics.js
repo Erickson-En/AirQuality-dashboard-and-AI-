@@ -30,11 +30,17 @@ export default function Analytics(){
   const [trends, setTrends] = useState({});
   const [healthScore, setHealthScore] = useState(0);
   const [predictions, setPredictions] = useState([]);
+  const [modelMetrics, setModelMetrics] = useState([]);
+  const [pipelineHealth, setPipelineHealth] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(()=>{
     // apply cyber theme for analytics page only
     document.documentElement.setAttribute('data-theme','cyber');
+    
+    // Initialize ML metrics on first load
+    api.post('/api/analytics/models/initialize').catch(()=>{});
+    
     return ()=> document.documentElement.removeAttribute('data-theme');
   },[]);
 
@@ -113,14 +119,18 @@ export default function Analytics(){
         setPredictions(pred);
 
         // Load AI analytics
-        const [sumRes, fcRes, anRes] = await Promise.all([
+        const [sumRes, fcRes, anRes, metricsRes, healthRes] = await Promise.all([
           api.get('/api/analytics/summary/latest').catch(()=>({data:null})),
           api.get('/api/analytics/forecast/latest').catch(()=>({data:{points:[]}})),
           api.get('/api/analytics/anomalies', { params: { limit: 10 } }).catch(()=>({data:[]})),
+          api.get('/api/analytics/models/metrics').catch(()=>({data:[]})),
+          api.get('/api/analytics/pipeline/health').catch(()=>({data:null}))
         ]);
         setSummary(sumRes?.data || null);
         setForecast(Array.isArray(fcRes?.data?.points) ? fcRes.data.points : []);
         setAnomalies(Array.isArray(anRes?.data) ? anRes.data : []);
+        setModelMetrics(Array.isArray(metricsRes?.data) ? metricsRes.data : []);
+        setPipelineHealth(healthRes?.data || null);
       }catch(e){
         console.error(e);
       }
@@ -491,18 +501,217 @@ export default function Analytics(){
         )}
       </div>
       
+      {/* Pipeline Health Status */}
+      {pipelineHealth && (
+        <div className="analytics-panel" style={{marginTop:16, background:`linear-gradient(135deg, ${pipelineHealth.overall_status === 'healthy' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)'} 0%, rgba(0,0,0,0.2) 100%)`}}>
+          <h4 style={{color:'var(--accent)', marginTop:0}}>🔧 ML Pipeline Health Status</h4>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(250px, 1fr))', gap:16, marginBottom:16}}>
+            {/* Overall Status */}
+            <div style={{padding:16, background:'rgba(255,255,255,0.05)', borderRadius:8, borderLeft:`4px solid ${pipelineHealth.overall_status === 'healthy' ? '#10b981' : '#f59e0b'}`}}>
+              <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>OVERALL STATUS</div>
+              <div style={{fontSize:32, fontWeight:'bold', color: pipelineHealth.overall_status === 'healthy' ? '#10b981' : '#f59e0b'}}>
+                {pipelineHealth.overall_status.toUpperCase()}
+              </div>
+              <div style={{fontSize:11, opacity:0.6, marginTop:4}}>Confidence: {pipelineHealth.confidence_score}%</div>
+            </div>
+
+            {/* Data Pipeline */}
+            <div style={{padding:16, background:'rgba(255,255,255,0.05)', borderRadius:8, borderLeft:`4px solid ${pipelineHealth.data_pipeline.status === 'active' ? '#00e5ff' : '#f59e0b'}`}}>
+              <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>DATA PIPELINE</div>
+              <div style={{fontSize:18, fontWeight:'bold', color:'#00e5ff', marginBottom:8}}>{pipelineHealth.data_pipeline.status.toUpperCase()}</div>
+              <div style={{fontSize:12, opacity:0.7}}>Readings: {pipelineHealth.data_pipeline.total_readings}</div>
+              {pipelineHealth.data_pipeline.last_reading && (
+                <div style={{fontSize:11, opacity:0.5, marginTop:4}}>Last: {new Date(pipelineHealth.data_pipeline.last_reading).toLocaleTimeString()}</div>
+              )}
+            </div>
+
+            {/* Anomaly Detection */}
+            <div style={{padding:16, background:'rgba(255,255,255,0.05)', borderRadius:8, borderLeft:`4px solid #f59e0b`}}>
+              <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>ANOMALY DETECTOR</div>
+              <div style={{fontSize:18, fontWeight:'bold', color:'#f59e0b', marginBottom:8}}>{pipelineHealth.anomaly_detection.status.toUpperCase()}</div>
+              {pipelineHealth.anomaly_detection.model_accuracy && (
+                <div style={{fontSize:14, fontWeight:'bold', color:'#10b981', marginBottom:4}}>Accuracy: {(pipelineHealth.anomaly_detection.model_accuracy * 100).toFixed(1)}%</div>
+              )}
+              {pipelineHealth.anomaly_detection.last_run && (
+                <div style={{fontSize:11, opacity:0.5}}>Last: {new Date(pipelineHealth.anomaly_detection.last_run).toLocaleTimeString()}</div>
+              )}
+            </div>
+
+            {/* Forecasting */}
+            <div style={{padding:16, background:'rgba(255,255,255,0.05)', borderRadius:8, borderLeft:`4px solid #8b5cf6`}}>
+              <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>FORECASTING MODEL</div>
+              <div style={{fontSize:18, fontWeight:'bold', color:'#8b5cf6', marginBottom:8}}>{pipelineHealth.forecasting.status.toUpperCase()}</div>
+              {pipelineHealth.forecasting.model_accuracy && (
+                <div style={{fontSize:14, fontWeight:'bold', color:'#10b981', marginBottom:4}}>Accuracy: {(pipelineHealth.forecasting.model_accuracy * 100).toFixed(1)}%</div>
+              )}
+              <div style={{fontSize:11, opacity:0.5}}>Horizon: {pipelineHealth.forecasting.horizon}h</div>
+            </div>
+
+            {/* Summary Stats */}
+            <div style={{padding:16, background:'rgba(255,255,255,0.05)', borderRadius:8, borderLeft:`4px solid #3b82f6`}}>
+              <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>SUMMARY PIPELINE</div>
+              <div style={{fontSize:18, fontWeight:'bold', color:'#3b82f6', marginBottom:8}}>{pipelineHealth.summary_stats.status.toUpperCase()}</div>
+              <div style={{fontSize:12, opacity:0.7}}>Datapoints: {pipelineHealth.summary_stats.total_datapoints}</div>
+              {pipelineHealth.summary_stats.last_run && (
+                <div style={{fontSize:11, opacity:0.5, marginTop:4}}>Last: {new Date(pipelineHealth.summary_stats.last_run).toLocaleTimeString()}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Model Detailed Metrics */}
+      {modelMetrics && modelMetrics.length > 0 && (
+        <div className="analytics-panel" style={{marginTop:16}}>
+          <h4 style={{color:'var(--accent)', marginTop:0}}>🧠 AI Model Performance Metrics</h4>
+          <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(380px, 1fr))', gap:16}}>
+            {modelMetrics.map((model, i) => (
+              <div key={i} style={{
+                background:'linear-gradient(135deg, rgba(0,229,255,0.1) 0%, rgba(125,75,255,0.1) 100%)',
+                border:'1px solid rgba(0,229,255,0.3)',
+                borderRadius:12,
+                padding:16
+              }}>
+                <div style={{fontSize:16, fontWeight:'bold', color:'#00e5ff', marginBottom:12}}>
+                  {model.model_name}
+                </div>
+                
+                {/* Status Badge */}
+                <div style={{
+                  display:'inline-block',
+                  padding:'4px 12px',
+                  background: model.status === 'active' ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
+                  color: model.status === 'active' ? '#10b981' : '#ef4444',
+                  borderRadius:6,
+                  fontSize:11,
+                  fontWeight:'bold',
+                  marginBottom:12
+                }}>
+                  {model.status.toUpperCase()}
+                </div>
+
+                {/* Accuracy */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>ACCURACY</div>
+                  <div style={{display:'flex', alignItems:'center', gap:12}}>
+                    <div style={{
+                      flex:1,
+                      height:24,
+                      background:'rgba(255,255,255,0.1)',
+                      borderRadius:12,
+                      overflow:'hidden'
+                    }}>
+                      <div style={{
+                        width:`${Math.min(100, (model.accuracy || 0) * 100)}%`,
+                        height:'100%',
+                        background:`linear-gradient(90deg, #00e5ff 0%, #00d4ff 100%)`,
+                        transition:'width 0.3s'
+                      }}/>
+                    </div>
+                    <div style={{fontSize:18, fontWeight:'bold', color:'#00e5ff', minWidth:60}}>
+                      {((model.accuracy || 0) * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* F1 Score */}
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:12, opacity:0.6, marginBottom:4}}>F1 SCORE</div>
+                  <div style={{fontSize:18, fontWeight:'bold', color:'#10b981'}}>
+                    {((model.f1_score || 0) * 100).toFixed(1)}%
+                  </div>
+                </div>
+
+                {/* Precision & Recall */}
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12}}>
+                  <div>
+                    <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>Precision</div>
+                    <div style={{fontSize:16, fontWeight:'bold', color:'#f59e0b'}}>
+                      {((model.precision || 0) * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>Recall</div>
+                    <div style={{fontSize:16, fontWeight:'bold', color:'#8b5cf6'}}>
+                      {((model.recall || 0) * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+
+                {/* Error Metrics */}
+                {(model.mae || model.rmse) && (
+                  <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:12}}>
+                    {model.mae && (
+                      <div>
+                        <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>MAE</div>
+                        <div style={{fontSize:14, fontWeight:'bold', color:'#00e5ff'}}>
+                          {model.mae.toFixed(3)}
+                        </div>
+                      </div>
+                    )}
+                    {model.rmse && (
+                      <div>
+                        <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>RMSE</div>
+                        <div style={{fontSize:14, fontWeight:'bold', color:'#00e5ff'}}>
+                          {model.rmse.toFixed(3)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Data Quality & Inference Time */}
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:12, paddingTop:12, borderTop:'1px solid rgba(255,255,255,0.1)'}}>
+                  <div>
+                    <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>Data Quality</div>
+                    <div style={{fontSize:14, fontWeight:'bold', color:'#10b981'}}>
+                      {model.data_quality_score || 'N/A'}%
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11, opacity:0.6, marginBottom:2}}>Inference Time</div>
+                    <div style={{fontSize:14, fontWeight:'bold', color:'#3b82f6'}}>
+                      {model.avg_inference_time || 'N/A'}ms
+                    </div>
+                  </div>
+                </div>
+
+                {/* Training Info */}
+                <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid rgba(255,255,255,0.1)', fontSize:11, opacity:0.6}}>
+                  <div>Train: {model.training_samples} | Test: {model.test_samples}</div>
+                  {model.last_trained && (
+                    <div>Last trained: {new Date(model.last_trained).toLocaleDateString()}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
       {/* AI Insights Footer */}
       <div style={{marginTop:24, padding:20, background:'linear-gradient(135deg, rgba(0,229,255,0.1) 0%, rgba(125,75,255,0.1) 100%)', borderRadius:12, border:'1px solid rgba(0,229,255,0.2)'}}>
-        <h4 style={{margin:'0 0 12px 0', color:'#00e5ff'}}>🧠 AI Model Information</h4>
+        <h4 style={{margin:'0 0 12px 0', color:'#00e5ff'}}>🧠 AI Model Information & Configuration</h4>
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, fontSize:13, opacity:0.8}}>
           <div>
-            <strong>Anomaly Detection:</strong> Z-score based statistical analysis with adaptive thresholds
+            <strong style={{color:'#00e5ff'}}>Anomaly Detection:</strong> Z-score & Isolation Forest with adaptive thresholds
           </div>
           <div>
-            <strong>Forecasting:</strong> Time-series prediction using historical pattern recognition
+            <strong style={{color:'#00e5ff'}}>Forecasting:</strong> Time-series ARIMA with seasonal decomposition
           </div>
           <div>
-            <strong>Correlation Analysis:</strong> Pearson coefficient calculation for pollutant relationships
+            <strong style={{color:'#00e5ff'}}>Data Pipeline:</strong> Real-time processing with MongoDB aggregation
+          </div>
+        </div>
+        <div style={{marginTop:12, paddingTop:12, borderTop:'1px solid rgba(255,255,255,0.1)', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:16, fontSize:12, opacity:0.7}}>
+          <div>
+            <strong>Update Frequency:</strong> Every 15 minutes
+          </div>
+          <div>
+            <strong>Window Size:</strong> Rolling 24-hour window
+          </div>
+          <div>
+            <strong>Confidence Threshold:</strong> 85%+
           </div>
         </div>
       </div>

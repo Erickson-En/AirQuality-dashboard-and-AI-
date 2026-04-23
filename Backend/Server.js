@@ -54,13 +54,10 @@ const allowedOrigins = [...defaultOrigins, ...envOrigins, ...productionOrigins];
 
 app.use(cors({
   origin: (origin, cb) => {
-    // Allow requests with no origin (mobile apps, curl, Postman, Arduino, etc.)
+    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
     if (!origin) return cb(null, true);
 
-    // Allow ALL Vercel deployments (preview + production)
-    if (origin.endsWith('.vercel.app')) return cb(null, true);
-
-    // Check if origin starts with any allowed origin (handles trailing slashes, ports)
+    // Check if origin starts with any allowed origin (handles trailing slashes, ports, preview URLs)
     const isAllowed = allowedOrigins.some(allowedOrigin => origin.startsWith(allowedOrigin));
     
     if (isAllowed) {
@@ -107,7 +104,7 @@ function recordReading(r) {
 }
 
 // ---------- ALERT ENGINE ----------
-const thresholds = { pm1: 50, pm25: 150, pm10: 150, co: 10, co2: 1000, o3: 100, no2: 100 };
+const thresholds = { pm25: 150, pm10: 150, co: 10, o3: 100, no2: 100 };
 
 async function processAlerts(normalized) {
   const alerts = [];
